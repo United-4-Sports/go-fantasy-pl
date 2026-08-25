@@ -85,6 +85,9 @@ jobs:
             exit 1
           fi
 
+      - name: Verify go fix is clean
+        run: make fix-check
+
       - name: Run vet
         run: go vet ./...
 

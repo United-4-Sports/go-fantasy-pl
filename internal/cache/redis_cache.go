@@ -66,7 +66,7 @@ func (r *RedisCache) prefixedKey(key string) string {
 }
 
 // Set serializes the value to JSON and stores it in Redis with the provided TTL.
-func (r *RedisCache) Set(key string, value interface{}, ttl time.Duration) error {
+func (r *RedisCache) Set(key string, value any, ttl time.Duration) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("redis cache: failed to marshal value for key %q: %w", key, err)
@@ -83,7 +83,7 @@ func (r *RedisCache) Set(key string, value interface{}, ttl time.Duration) error
 
 // Get retrieves a value from Redis and unmarshals it into the destination object.
 // Returns false if the key is missing, expired, or data is corrupted.
-func (r *RedisCache) Get(key string, dest interface{}) bool {
+func (r *RedisCache) Get(key string, dest any) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

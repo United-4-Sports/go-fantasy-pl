@@ -14,9 +14,9 @@ import (
 type Cache interface {
 	// Get retrieves a value from the cache by key and unmarshals it into dest.
 	// Returns true if the key exists and has not expired, false otherwise.
-	Get(key string, dest interface{}) bool
+	Get(key string, dest any) bool
 	// Set serializes a value and stores it in the cache with the specified TTL.
-	Set(key string, value interface{}, ttl time.Duration) error
+	Set(key string, value any, ttl time.Duration) error
 	// Delete removes a specific key from the cache.
 	Delete(key string)
 	// Clear removes all keys from the cache.
@@ -44,7 +44,7 @@ func NewMemoryCache() *MemoryCache {
 }
 
 // Set serializes the provided value to JSON and stores it with the given TTL.
-func (c *MemoryCache) Set(key string, value interface{}, ttl time.Duration) error {
+func (c *MemoryCache) Set(key string, value any, ttl time.Duration) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("cache: failed to marshal value for key %q: %w", key, err)
@@ -62,7 +62,7 @@ func (c *MemoryCache) Set(key string, value interface{}, ttl time.Duration) erro
 
 // Get retrieves and deserializes the cached value into the destination object.
 // Returns false if the key does not exist or has already expired.
-func (c *MemoryCache) Get(key string, dest interface{}) bool {
+func (c *MemoryCache) Get(key string, dest any) bool {
 	c.mu.RLock()
 	it, exists := c.items[key]
 	c.mu.RUnlock()

@@ -13,10 +13,10 @@ type ClassicLeague struct {
 }
 
 type NewEntries struct {
-	HasNext bool          `json:"has_next"`
-	Page    int           `json:"page"`
-	Number  int           `json:"number"`
-	Results []interface{} `json:"results"` // Assuming results can be of various types
+	HasNext bool  `json:"has_next"`
+	Page    int   `json:"page"`
+	Number  int   `json:"number"`
+	Results []any `json:"results"` // Assuming results can be of various types
 }
 
 // League represents the league details.
@@ -177,9 +177,9 @@ type H2HLeagueStandings struct {
 }
 
 type H2HNewEntries struct {
-	HasNext bool          `json:"has_next"`
-	Page    int           `json:"page"`
-	Results []interface{} `json:"results"`
+	HasNext bool  `json:"has_next"`
+	Page    int   `json:"page"`
+	Results []any `json:"results"`
 }
 
 type H2HLeague struct {
