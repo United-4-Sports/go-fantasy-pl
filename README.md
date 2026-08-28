@@ -178,11 +178,12 @@ c, err := client.NewClient(
 The GitHub Actions pipeline now covers:
 
 - formatting, module tidy checks, vet, tests, and builds on pull requests and pushes
+- SonarCloud analysis (quality gate + coverage from `coverage.out`; see `sonar-project.properties`)
 - optional deployment webhook triggering on `main`
 
 Optional repository secrets:
 
-- `CODECOV_TOKEN`
+- `SONAR_TOKEN`
 - `DEPLOY_WEBHOOK_URL`
 - `DEPLOY_WEBHOOK_TOKEN`
 
