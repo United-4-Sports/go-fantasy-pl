@@ -1,4 +1,4 @@
-.PHONY: test live-test recapture fmt fmt-check vet
+.PHONY: test live-test recapture fmt fmt-check vet fix fix-check
 
 # Hermetic suite: schema conformance + behavior tests against committed
 # captures. No network, runs in CI.
@@ -23,3 +23,14 @@ fmt-check:
 
 vet:
 	go vet ./...
+
+# Apply modernization fixes from the current Go toolchain (builtin min/max,
+# interface{} -> any, range-over-int, reflect.TypeFor, ...).
+fix:
+	go fix ./...
+
+# Verify the code is already up to date with `go fix`; fails if it changes
+# anything. Used by CI.
+fix-check:
+	go fix ./...
+	@git diff --exit-code -- '*.go' || (echo "'go fix' produced changes; run 'make fix' and commit them." && exit 1)

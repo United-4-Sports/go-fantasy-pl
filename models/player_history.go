@@ -1,11 +1,13 @@
 package models
 
+// PlayerHistory represents a player's complete history including fixtures, gameweek stats, and past season stats.
 type PlayerHistory struct {
 	Fixtures    []FixtureStats     `json:"fixtures"`     // Add fixtures field
 	History     []GameWeekStats    `json:"history"`      // Keep history field
 	HistoryPast []PastHistoryStats `json:"history_past"` // Add history_past field
 }
 
+// GameWeekStats represents a player's performance statistics for a single gameweek.
 type GameWeekStats struct {
 	Element                  int    `json:"element"`
 	Fixture                  int    `json:"fixture"`
@@ -54,6 +56,7 @@ type GameWeekStats struct {
 	Modified         bool `json:"modified"`          // Stats were adjusted after the fixture ended
 }
 
+// FixtureStats represents details about a fixture for a specific player.
 type FixtureStats struct {
 	ID                   int    `json:"id"`
 	Code                 int    `json:"code"`
@@ -71,6 +74,7 @@ type FixtureStats struct {
 	Difficulty           int    `json:"difficulty"`
 }
 
+// PastHistoryStats represents a player's season-level statistics from previous seasons.
 type PastHistoryStats struct {
 	SeasonName               string `json:"season_name"`
 	ElementCode              int    `json:"element_code"`

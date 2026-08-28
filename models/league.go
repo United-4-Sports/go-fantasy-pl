@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// ClassicLeague represents a classic scoring league with its standings and entry information.
 type ClassicLeague struct {
 	NewEntries      NewEntries `json:"new_entries"`
 	LastUpdatedData time.Time  `json:"last_updated_data"`
@@ -12,11 +13,12 @@ type ClassicLeague struct {
 	Standings       Standings  `json:"standings"`
 }
 
+// NewEntries represents paginated new entries to a league.
 type NewEntries struct {
-	HasNext bool          `json:"has_next"`
-	Page    int           `json:"page"`
-	Number  int           `json:"number"`
-	Results []interface{} `json:"results"` // Assuming results can be of various types
+	HasNext bool  `json:"has_next"`
+	Page    int   `json:"page"`
+	Number  int   `json:"number"`
+	Results []any `json:"results"` // Assuming results can be of various types
 }
 
 // League represents the league details.
@@ -58,14 +60,17 @@ type LeagueManager struct {
 	HasPlayed  bool   `json:"has_played"`
 }
 
+// GetLeagueInfo returns a formatted string with the league name and ID.
 func (cl *ClassicLeague) GetLeagueInfo() string {
 	return fmt.Sprintf("%s (ID: %d)", cl.League.Name, cl.League.ID)
 }
 
+// GetUpdateTime returns the last update time of the league data in RFC822 format.
 func (cl *ClassicLeague) GetUpdateTime() string {
 	return cl.LastUpdatedData.Format(time.RFC822)
 }
 
+// GetTopManagers returns the top n managers from the league standings.
 func (cl *ClassicLeague) GetTopManagers(n int) []LeagueManager {
 	if n > len(cl.Standings.Results) {
 		n = len(cl.Standings.Results)
@@ -81,6 +86,7 @@ func (l *League) GetMaxEntries() int {
 	return *l.MaxEntries
 }
 
+// GetAdminEntry returns the admin entry ID for the league, or 0 if not set.
 func (l *League) GetAdminEntry() int {
 	if l.AdminEntry == nil {
 		return 0
@@ -88,6 +94,7 @@ func (l *League) GetAdminEntry() int {
 	return *l.AdminEntry
 }
 
+// GetRank returns the league's global rank, or 0 if not set.
 func (l *League) GetRank() int {
 	if l.Rank == nil {
 		return 0
@@ -95,6 +102,7 @@ func (l *League) GetRank() int {
 	return *l.Rank
 }
 
+// GetCreationDate returns the league creation date in YYYY-MM-DD format.
 func (l *League) GetCreationDate() string {
 	return l.Created.Format("2006-01-02")
 }
@@ -104,10 +112,12 @@ func (lm *LeagueManager) GetManagerInfo() string {
 	return fmt.Sprintf("%s (%s)", lm.EntryName, lm.PlayerName)
 }
 
+// GetRankChange returns the change in rank since the last gameweek (positive means improvement).
 func (lm *LeagueManager) GetRankChange() int {
 	return lm.LastRank - lm.Rank
 }
 
+// GetRankChangeString returns a formatted string showing rank change with arrows.
 func (lm *LeagueManager) GetRankChangeString() string {
 	change := lm.GetRankChange()
 	if change > 0 {
@@ -127,6 +137,7 @@ func (s *Standings) GetPageInfo() string {
 	return fmt.Sprintf("Page %d", currentPage)
 }
 
+// HasPreviousPage returns true if there is a previous page of standings available.
 func (s *Standings) HasPreviousPage() bool {
 	currentPage := s.Page
 	if currentPage == 0 {
@@ -135,12 +146,14 @@ func (s *Standings) HasPreviousPage() bool {
 	return currentPage > 1
 }
 
+// H2HLeagueMatchesPage represents a paginated list of head-to-head league matches.
 type H2HLeagueMatchesPage struct {
 	HasNext bool       `json:"has_next"`
 	Page    int        `json:"page"`
 	Results []H2HMatch `json:"results"`
 }
 
+// H2HMatch represents a head-to-head match between two league entries.
 type H2HMatch struct {
 	ID               int    `json:"id"`
 	Entry1Entry      int    `json:"entry_1_entry"`
@@ -169,6 +182,7 @@ type H2HMatch struct {
 	KnockoutName     string `json:"knockout_name"`
 }
 
+// H2HLeagueStandings represents the standings for a head-to-head league.
 type H2HLeagueStandings struct {
 	NewEntries      H2HNewEntries `json:"new_entries"`
 	LastUpdatedData *time.Time    `json:"last_updated_data"`
@@ -176,12 +190,14 @@ type H2HLeagueStandings struct {
 	Standings       H2HStandings  `json:"standings"`
 }
 
+// H2HNewEntries represents paginated new entries to a head-to-head league.
 type H2HNewEntries struct {
-	HasNext bool          `json:"has_next"`
-	Page    int           `json:"page"`
-	Results []interface{} `json:"results"`
+	HasNext bool  `json:"has_next"`
+	Page    int   `json:"page"`
+	Results []any `json:"results"`
 }
 
+// H2HLeague represents a head-to-head scoring league with its configuration.
 type H2HLeague struct {
 	ID          int       `json:"id"`
 	Name        string    `json:"name"`
@@ -198,12 +214,14 @@ type H2HLeague struct {
 	KoRounds    *int      `json:"ko_rounds"`
 }
 
+// H2HStandings represents paginated standings for a head-to-head league.
 type H2HStandings struct {
 	HasNext bool                `json:"has_next"`
 	Page    int                 `json:"page"`
 	Results []H2HLeagueStanding `json:"results"`
 }
 
+// H2HLeagueStanding represents a single entry's standing in a head-to-head league.
 type H2HLeagueStanding struct {
 	ID            int    `json:"id"`
 	EntryName     string `json:"entry_name"`
