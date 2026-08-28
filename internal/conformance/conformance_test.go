@@ -312,3 +312,38 @@ func TestExtract_ErrorPaths(t *testing.T) {
 		})
 	}
 }
+
+// scalarFixture exercises the scalar comparison helpers' mismatch branches:
+// every case pairs a model decoded from a valid payload with a raw payload
+// whose corresponding value has the wrong type or value.
+type scalarFixture struct {
+	Name string    `json:"name"`
+	On   bool      `json:"on"`
+	When time.Time `json:"when"`
+}
+
+func TestCheck_ScalarMismatches(t *testing.T) {
+	valid := `{"name": "x", "on": true, "when": "2026-08-15T17:30:00Z"}`
+	decoded := decodeInto[scalarFixture](t, valid)
+
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"bool payload for string field", `{"name": true, "on": true, "when": "2026-08-15T17:30:00Z"}`, "payload is a bool but the field is string"},
+		{"string value drift", `{"name": "y", "on": true, "when": "2026-08-15T17:30:00Z"}`, `field has "x"`},
+		{"string payload for bool field", `{"name": "x", "on": "yes", "when": "2026-08-15T17:30:00Z"}`, "payload is a string but the field is bool"},
+		{"bool value drift", `{"name": "x", "on": false, "when": "2026-08-15T17:30:00Z"}`, "field has true"},
+		{"number payload for time field", `{"name": "x", "on": true, "when": 42}`, "field is a time.Time"},
+		{"malformed timestamp", `{"name": "x", "on": true, "when": "not-a-time"}`, "is not RFC 3339"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			failures := runCheck(t, tc.raw, Spec{Model: &decoded})
+			if !anyContains(failures, tc.want) {
+				t.Fatalf("expected %q, got: %v", tc.want, failures)
+			}
+		})
+	}
+}
