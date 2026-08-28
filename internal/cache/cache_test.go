@@ -155,13 +155,13 @@ func TestMemoryCache_ConcurrentAccess(t *testing.T) {
 	done := make(chan struct{})
 
 	go func() {
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			_ = c.Set("concurrent_key", i, time.Minute)
 		}
 		close(done)
 	}()
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		var v int
 		c.Get("concurrent_key", &v)
 	}

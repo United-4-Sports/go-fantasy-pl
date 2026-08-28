@@ -13,13 +13,6 @@ import (
 
 const separator = "----------------------------------------"
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func main() {
 	// Step 1: Initialize the FPL client
 	fpl, err := client.NewClient()

@@ -57,11 +57,3 @@ func (r *rateLimiter) Wait() {
 	// Consume a token
 	r.tokens--
 }
-
-// min is a helper function to return the minimum of two integers.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

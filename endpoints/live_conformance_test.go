@@ -162,10 +162,7 @@ func TestLiveConformance(t *testing.T) {
 		require.NotEmpty(t, teams)
 
 		// Sample three teams; IDs are dense 1-20 every season.
-		sample := 3
-		if len(teams) < sample {
-			sample = len(teams)
-		}
+		sample := min(len(teams), 3)
 		for _, tm := range teams[:sample] {
 			got, err := c.Teams.GetTeam(tm.ID)
 			require.NoError(t, err)

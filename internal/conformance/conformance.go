@@ -348,7 +348,7 @@ func fieldByName(model reflect.Value, name string) (reflect.Value, bool) {
 	return f, f.IsValid()
 }
 
-var timeType = reflect.TypeOf(time.Time{})
+var timeType = reflect.TypeFor[time.Time]()
 
 func indirect(v reflect.Value) reflect.Value {
 	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
