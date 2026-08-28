@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -40,14 +39,20 @@ func newEndpointTestClient(t *testing.T) (*client.Client, *httptest.Server) {
 			writeTestdata(t, w, "fixtures.json")
 		case strings.HasPrefix(r.URL.Path, "/event/") && strings.HasSuffix(r.URL.Path, "/live/"):
 			id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/event/"), "/live/")
-			if _, err := os.Stat(filepath.Join("testdata", fmt.Sprintf("live-%s.json", id))); err != nil {
+			name, ok := existingFixture(fmt.Sprintf("live-%s.json", id))
+			if !ok {
 				http.NotFound(w, r)
 				return
 			}
-			writeTestdata(t, w, fmt.Sprintf("live-%s.json", id))
+			writeTestdata(t, w, name)
 		case strings.HasPrefix(r.URL.Path, "/element-summary/"):
 			id := strings.TrimPrefix(strings.TrimSuffix(r.URL.Path, "/"), "/element-summary/")
-			writeTestdata(t, w, fmt.Sprintf("element-summary-%s.json", id))
+			name, ok := existingFixture(fmt.Sprintf("element-summary-%s.json", id))
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			writeTestdata(t, w, name)
 		default:
 			http.NotFound(w, r)
 		}
@@ -69,12 +74,27 @@ func writeTestdata(t *testing.T, w http.ResponseWriter, name string) {
 	require.NoError(t, err)
 }
 
+// existingFixture maps a request-derived filename to the matching entry on
+// disk. The fake server's request paths are not trusted input: only names
+// that actually exist in testdata/ — taken from the directory listing, not
+// from the request — reach the fixture readers.
+func existingFixture(name string) (string, bool) {
+	entries, err := os.ReadDir("testdata")
+	if err != nil {
+		return "", false
+	}
+	for _, e := range entries {
+		if e.Name() == name {
+			return e.Name(), true
+		}
+	}
+	return "", false
+}
+
 // testdataFS is the filesystem view over the committed captures. Reading
 // through DirFS (instead of a hand-built path) structurally guarantees the
 // name cannot escape testdata/: names containing "/", "\", or ".." are
-// rejected by the fs implementation itself. Fixture names are sometimes
-// built from API-supplied IDs (element-summary/<id>.json), so that
-// containment matters.
+// rejected by the fs implementation itself.
 var testdataFS = os.DirFS("testdata")
 
 // readTestdata returns the raw bytes of a committed capture. Fixtures are
