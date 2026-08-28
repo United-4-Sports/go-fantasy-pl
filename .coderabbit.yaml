@@ -1,0 +1,98 @@
+# CodeRabbit configuration for go-fantasy-pl
+# Reference: https://docs.coderabbit.ai/reference/configuration
+# The config on the feature branch is the one used for that PR's review.
+
+language: "en-US"
+
+reviews:
+  # Balanced profile: catches real issues without being nitpicky.
+  profile: "chill"
+
+  # Do not auto-approve PRs when comments get resolved.
+  request_changes_workflow: false
+
+  # Write the high-level summary into the PR description.
+  high_level_summary: true
+
+  # Keep the walkthrough in a collapsible section.
+  collapse_walkthrough: true
+
+  # No poems; keep reviews professional.
+  poem: false
+
+  # Include the changed-files summary in the walkthrough.
+  changed_files_summary: true
+
+  review_status: true
+
+  auto_review:
+    enabled: true
+    # Re-run the review on every push.
+    auto_incremental_review: true
+    # Pause auto reviews after 5 reviewed commits since the last pause.
+    auto_pause_after_reviewed_commits: 5
+    # Don't review draft PRs until they're marked ready.
+    drafts: false
+
+  # Keep reviews focused: skip machine-generated / captured files.
+  path_filters:
+    - "!go.sum"
+    - "!endpoints/testdata/**"
+    - "!.git/**"
+
+  path_instructions:
+    - path: "**/*.go"
+      instructions: |
+        This is a Go library (Go 1.24+). Review for idiomatic Go:
+        - Handle errors explicitly; never swallow them or panic.
+        - Keep APIs simple and predictable; prefer small, testable functions.
+        - Match the existing patterns already used in the same package.
+        - Add comments only where logic is non-obvious.
+        - Never assert real-world values (team names, player names, match IDs)
+          in tests: this project's contract with the FPL API is schema-shaped,
+          so tests assert schema and invariants only.
+
+    - path: "endpoints/testdata/**"
+      instructions: |
+        These are committed FPL API capture fixtures used by the hermetic
+        conformance suite. Their values are intentionally captured from the
+        live API and must not be edited by hand. Schema drift is handled via
+        the allowlists in `endpoints/conformance_specs_test.go` and
+        `make recapture`.
+
+    - path: "endpoints/conformance_specs_test.go"
+      instructions: |
+        Every allowlist entry in this file is a deliberate, reviewable decision
+        not to map an API field to a model field. Only suggest removing an
+        entry if a model field is being added that maps it.
+
+    - path: "**/*_test.go"
+      instructions: |
+        Prefer hermetic tests: exercise endpoints with httptest servers serving
+        the committed captures in `endpoints/testdata/`. Expectations must be
+        derived from the capture files or from invariants — never from hard-
+        coded live API values.
+
+    - path: ".github/workflows/**"
+      instructions: |
+        Follow the conventions already established in this repo: pinned action
+        versions, least-privilege `permissions` blocks, `concurrency` groups,
+        and guarded deploy steps that no-op when secrets are unset.
+
+  # Lint tools live under reviews.tools — a top-level tools key is not part
+  # of the schema and gets ignored with a parsing warning.
+  tools:
+    golangci-lint:
+      # Runs when a golangci config is present (none today); kicks in if one is
+      # added later.
+      enabled: true
+    markdownlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    hadolint:
+      enabled: false # Docker has been removed from this repo.
+
+chat:
+  # Reply without requiring a @mention.
+  auto_reply: true

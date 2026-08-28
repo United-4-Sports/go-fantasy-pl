@@ -1,5 +1,6 @@
 package models
 
+// GameSettings represents the game configuration and rules for the FPL season.
 type GameSettings struct {
 	LeagueJoinPrivateMax         int      `json:"league_join_private_max"`
 	LeagueJoinPublicMax          int      `json:"league_join_public_max"`

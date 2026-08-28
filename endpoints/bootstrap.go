@@ -95,6 +95,8 @@ func (bs *BootstrapService) GetGameWeeks() ([]models.GameWeek, error) {
 	return bootstrapSection(bs, "gameweeks", func(r *Response) []models.GameWeek { return r.Events })
 }
 
+// GetCurrentGameWeek returns the ID of the current active gameweek.
+// Results are cached for 3 minutes by default.
 func (bs *BootstrapService) GetCurrentGameWeek() (int, error) {
 	const cacheKey = "current_gameweek"
 	var gw int
@@ -119,6 +121,8 @@ func (bs *BootstrapService) GetCurrentGameWeek() (int, error) {
 	return 0, fmt.Errorf("failed to find current gameweek")
 }
 
+// GetSettings returns the game settings from the bootstrap-static endpoint.
+// Results are cached for 24 hours by default.
 func (bs *BootstrapService) GetSettings() (*models.GameSettings, error) {
 	settings, err := bootstrapSection(bs, "settings", func(r *Response) models.GameSettings { return r.Settings })
 	if err != nil {
