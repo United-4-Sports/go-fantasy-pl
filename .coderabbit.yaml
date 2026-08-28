@@ -79,17 +79,19 @@ reviews:
         versions, least-privilege `permissions` blocks, `concurrency` groups,
         and guarded deploy steps that no-op when secrets are unset.
 
-tools:
-  golangci-lint:
-    # Runs when a golangci config is present (none today); kicks in if one is
-    # added later.
-    enabled: true
-  markdownlint:
-    enabled: true
-  yamllint:
-    enabled: true
-  hadolint:
-    enabled: false # Docker has been removed from this repo.
+  # Lint tools live under reviews.tools — a top-level tools key is not part
+  # of the schema and gets ignored with a parsing warning.
+  tools:
+    golangci-lint:
+      # Runs when a golangci config is present (none today); kicks in if one is
+      # added later.
+      enabled: true
+    markdownlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    hadolint:
+      enabled: false # Docker has been removed from this repo.
 
 chat:
   # Reply without requiring a @mention.
