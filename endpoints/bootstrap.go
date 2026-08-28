@@ -5,6 +5,7 @@ package endpoints
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/AbdoAnss/go-fantasy-pl/api"
@@ -55,9 +56,19 @@ type Response struct {
 
 // BootstrapService provides access to the /bootstrap-static/ endpoint,
 // which contains the majority of the static data for the current FPL season.
+//
+// Every section (teams, players, gameweeks, settings) is cached under its
+// own key with its own TTL, but a cache miss always fetches the endpoint
+// once and populates all sections in a single pass — callers asking for
+// two sections never trigger two downloads.
 type BootstrapService struct {
 	client api.Client
 }
+
+// bootstrapMu serializes bootstrap fetches so concurrent section misses
+// (e.g. players and gameweeks expiring together) share one HTTP call
+// instead of stampeding the endpoint.
+var bootstrapMu sync.Mutex
 
 // NewBootstrapService creates a new instance of the BootstrapService.
 func NewBootstrapService(client api.Client) *BootstrapService {
@@ -69,67 +80,19 @@ func NewBootstrapService(client api.Client) *BootstrapService {
 // GetTeams returns a list of all Premier League teams.
 // Results are cached for 24 hours by default.
 func (bs *BootstrapService) GetTeams() ([]models.Team, error) {
-	const cacheKey = "teams"
-	var teams []models.Team
-	if sharedCache.Get(cacheKey, &teams) {
-		return teams, nil
-	}
-
-	data, err := bs.fetchBootstrapData()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get teams: %w", err)
-	}
-	if sharedCache == nil {
-		return nil, fmt.Errorf("shared cache is not initialized")
-	}
-
-	if err := sharedCache.Set(cacheKey, data.Teams, teamsCacheTTL); err != nil {
-		return nil, fmt.Errorf("failed to cache teams: %w", err)
-	}
-	return data.Teams, nil
+	return bootstrapSection(bs, "teams", func(r *Response) []models.Team { return r.Teams })
 }
 
 // GetPlayers returns a list of all Premier League players (elements).
 // Results are cached for 10 minutes by default.
 func (bs *BootstrapService) GetPlayers() ([]models.Player, error) {
-	const cacheKey = "players"
-	var players []models.Player
-	if sharedCache.Get(cacheKey, &players) {
-		return players, nil
-	}
-
-	data, err := bs.fetchBootstrapData()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get players: %w", err)
-	}
-	if sharedCache == nil {
-		return nil, fmt.Errorf("shared cache is not initialized")
-	}
-
-	if err := sharedCache.Set(cacheKey, data.Elements, playersCacheTTL); err != nil {
-		return nil, fmt.Errorf("failed to cache players: %w", err)
-	}
-	return data.Elements, nil
+	return bootstrapSection(bs, "players", func(r *Response) []models.Player { return r.Elements })
 }
 
 // GetGameWeeks returns a list of all gameweeks (events) for the season.
 // Results are cached for 3 minutes by default.
 func (bs *BootstrapService) GetGameWeeks() ([]models.GameWeek, error) {
-	const cacheKey = "gameweeks"
-	var gw []models.GameWeek
-	if sharedCache.Get(cacheKey, &gw) {
-		return gw, nil
-	}
-
-	data, err := bs.fetchBootstrapData()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get gameweeks: %w", err)
-	}
-
-	if err := sharedCache.Set(cacheKey, data.Events, gameweeksCacheTTL); err != nil {
-		return nil, fmt.Errorf("failed to cache gameweeks: %w", err)
-	}
-	return data.Events, nil
+	return bootstrapSection(bs, "gameweeks", func(r *Response) []models.GameWeek { return r.Events })
 }
 
 // GetCurrentGameWeek returns the ID of the current active gameweek.
@@ -161,34 +124,56 @@ func (bs *BootstrapService) GetCurrentGameWeek() (int, error) {
 // GetSettings returns the game settings from the bootstrap-static endpoint.
 // Results are cached for 24 hours by default.
 func (bs *BootstrapService) GetSettings() (*models.GameSettings, error) {
-	const cacheKey = "settings"
-	var settings models.GameSettings
-	if sharedCache.Get(cacheKey, &settings) {
-		return &settings, nil
-	}
-
-	data, err := bs.fetchBootstrapData()
+	settings, err := bootstrapSection(bs, "settings", func(r *Response) models.GameSettings { return r.Settings })
 	if err != nil {
-		return nil, fmt.Errorf("failed to get settings: %w", err)
+		return nil, err
 	}
-
-	if err := sharedCache.Set(cacheKey, data.Settings, settingsCacheTTL); err != nil {
-		return nil, fmt.Errorf("failed to cache settings: %w", err)
-	}
-	return &data.Settings, nil
+	return &settings, nil
 }
 
-func (bs *BootstrapService) fetchBootstrapData() (*Response, error) {
+// bootstrapSection returns one cached section of the bootstrap response.
+// On a miss it fetches /bootstrap-static/ at most once under a shared lock
+// and populates every section's cache key with its own TTL, so callers
+// asking for several sections never trigger several downloads.
+func bootstrapSection[T any](bs *BootstrapService, cacheKey string, extract func(*Response) T) (T, error) {
+	var cached T
+	if sharedCache.Get(cacheKey, &cached) {
+		return cached, nil
+	}
+
+	bootstrapMu.Lock()
+	defer bootstrapMu.Unlock()
+
+	// Re-check under the lock: another goroutine may have populated the
+	// section while we waited.
+	if sharedCache.Get(cacheKey, &cached) {
+		return cached, nil
+	}
+
 	resp, err := bs.client.Get(bootstrapEndpoint)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get bootstrap data: %w", err)
+		return cached, fmt.Errorf("failed to get bootstrap data: %w", err)
 	}
 	defer resp.Body.Close()
 
-	var bootstrapResp Response
-	if err := json.NewDecoder(resp.Body).Decode(&bootstrapResp); err != nil {
-		return nil, fmt.Errorf("failed to decode bootstrap data: %w", err)
+	var full Response
+	if err := json.NewDecoder(resp.Body).Decode(&full); err != nil {
+		return cached, fmt.Errorf("failed to decode bootstrap data: %w", err)
 	}
 
-	return &bootstrapResp, nil
+	for _, s := range []struct {
+		key   string
+		ttl   time.Duration
+		value any
+	}{
+		{"teams", teamsCacheTTL, full.Teams},
+		{"players", playersCacheTTL, full.Elements},
+		{"gameweeks", gameweeksCacheTTL, full.Events},
+		{"settings", settingsCacheTTL, full.Settings},
+	} {
+		if err := sharedCache.Set(s.key, s.value, s.ttl); err != nil {
+			return cached, fmt.Errorf("failed to cache %s: %w", s.key, err)
+		}
+	}
+	return extract(&full), nil
 }
