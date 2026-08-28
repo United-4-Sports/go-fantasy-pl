@@ -2,6 +2,7 @@ package endpoints_test
 
 import (
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -68,35 +69,35 @@ func writeTestdata(t *testing.T, w http.ResponseWriter, name string) {
 	require.NoError(t, err)
 }
 
+// testdataFS is the filesystem view over the committed captures. Reading
+// through DirFS (instead of a hand-built path) structurally guarantees the
+// name cannot escape testdata/: names containing "/", "\", or ".." are
+// rejected by the fs implementation itself. Fixture names are sometimes
+// built from API-supplied IDs (element-summary/<id>.json), so that
+// containment matters.
+var testdataFS = os.DirFS("testdata")
+
 // readTestdata returns the raw bytes of a committed capture. Fixtures are
 // real API responses (refreshed via `make recapture`), so tests must assert
 // schema and invariants rather than specific values.
 func readTestdata(t *testing.T, name string) []byte {
 	t.Helper()
 
-	body, err := os.ReadFile(testdataPath(t, name))
+	body, err := fs.ReadFile(testdataFS, name)
 	require.NoError(t, err)
 	return body
 }
 
 // writeTestdataFile persists a fresh capture; used by the live harness in
-// recapture mode.
+// recapture mode. Names come from local format strings, never the API, and
+// the guard keeps the path inside testdata/.
 func writeTestdataFile(t *testing.T, name string, body []byte) {
-	t.Helper()
-
-	require.NoError(t, os.WriteFile(testdataPath(t, name), body, 0o644))
-}
-
-// testdataPath builds the path for a capture file. Fixture names are
-// sometimes built from API-supplied IDs (element-summary/<id>.json), so a
-// plain name check keeps the path inside testdata/.
-func testdataPath(t *testing.T, name string) string {
 	t.Helper()
 
 	if name == "" || strings.ContainsAny(name, `/\`) {
 		t.Fatalf("invalid testdata fixture name %q", name)
 	}
-	return filepath.Join("testdata", name)
+	require.NoError(t, os.WriteFile(filepath.Join("testdata", name), body, 0o644))
 }
 
 // jsonName formats a testdata filename.
