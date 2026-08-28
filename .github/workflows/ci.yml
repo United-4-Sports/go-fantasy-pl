@@ -50,9 +50,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # The secrets context is not available in step-level if: conditions, so
-    # the Codecov token is surfaced through job env instead.
+    # the SonarCloud token is surfaced through job env instead.
     env:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -114,15 +114,15 @@ jobs:
           name: coverage
           path: coverage.out
 
-      - name: Upload coverage to Codecov
-        if: ${{ env.CODECOV_TOKEN != '' }}
-        uses: codecov/codecov-action@v7
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage.out
-          flags: unittests
-          name: go-fantasy-pl
-          fail_ci_if_error: true
+      # SonarCloud CI-based analysis: code quality + coverage from the
+      # profile above (sonar-project.properties). Requires the project's
+      # Automatic Analysis to be disabled in SonarCloud, or the two race.
+      # Fork PRs see an empty SONAR_TOKEN (secrets are not shared) and skip.
+      - name: SonarCloud scan
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-scan-action@v8.2.1
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
   deploy:
     name: Trigger Deployment
