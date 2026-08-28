@@ -29,6 +29,10 @@ import (
 	"time"
 )
 
+// errBadJSON prefixes the fatal message used when a payload does not decode;
+// shared by Check, Extract, and Report.
+const errBadJSON = "conformance: payload is not valid JSON: %v"
+
 // Spec describes how a raw JSON payload maps onto a decoded model.
 type Spec struct {
 	// Model is the decoded value to validate, e.g. &resp or resp.Results[0].
@@ -52,7 +56,7 @@ func Check(t testing.TB, raw []byte, spec Spec) {
 
 	payload, err := decodeValue(raw)
 	if err != nil {
-		t.Fatalf("conformance: payload is not valid JSON: %v", err)
+		t.Fatalf(errBadJSON, err)
 	}
 
 	allow := map[string]bool{}
@@ -72,7 +76,7 @@ func Extract(t testing.TB, raw []byte, path ...any) []byte {
 
 	node, err := decodeValue(raw)
 	if err != nil {
-		t.Fatalf("conformance: payload is not valid JSON: %v", err)
+		t.Fatalf(errBadJSON, err)
 	}
 
 	for _, seg := range path {
@@ -119,7 +123,7 @@ func Report(t testing.TB, raw []byte, spec Spec) []string {
 
 	payload, err := decodeValue(raw)
 	if err != nil {
-		t.Fatalf("conformance: payload is not valid JSON: %v", err)
+		t.Fatalf(errBadJSON, err)
 	}
 
 	obj, ok := payload.(map[string]any)
@@ -237,46 +241,59 @@ func compareScalars(fieldName string, raw any, model reflect.Value) error {
 		field = field.Elem()
 	}
 
-	// Timestamps arrive as RFC 3339 strings but decode into time.Time
-	// structs; compare them as instants rather than by kind.
 	if field.Type() == timeType {
-		s, isStr := raw.(string)
-		if !isStr {
-			return fmt.Errorf("payload is a %T but the field is a time.Time", raw)
-		}
-		parsed, err := time.Parse(time.RFC3339, s)
-		if err != nil {
-			return fmt.Errorf("payload timestamp %q is not RFC 3339", s)
-		}
-		if !field.Interface().(time.Time).Equal(parsed) {
-			return fmt.Errorf("field has %s", field.Interface().(time.Time).Format(time.RFC3339))
-		}
-		return nil
+		return compareTimestamp(field, raw)
 	}
 
 	switch v := raw.(type) {
 	case string:
-		if field.Kind() != reflect.String {
-			return fmt.Errorf("payload is a string but the field is %s", field.Kind())
-		}
-		if field.String() != v {
-			return fmt.Errorf("field has %q", field.String())
-		}
+		return compareString(field, v)
 	case bool:
-		if field.Kind() != reflect.Bool {
-			return fmt.Errorf("payload is a bool but the field is %s", field.Kind())
-		}
-		if field.Bool() != v {
-			return fmt.Errorf("field has %v", field.Bool())
-		}
+		return compareBool(field, v)
 	case json.Number:
-		if err := compareNumber(v, field); err != nil {
-			return err
-		}
+		return compareNumber(v, field)
 	case map[string]any, []any:
 		return nil // nested values are validated by their own Check call
 	default:
 		return fmt.Errorf("unsupported payload type %T", raw)
+	}
+}
+
+// compareTimestamp handles time.Time fields: timestamps arrive as RFC 3339
+// strings but decode into time.Time structs, so they are compared as
+// instants rather than by kind.
+func compareTimestamp(field reflect.Value, raw any) error {
+	s, isStr := raw.(string)
+	if !isStr {
+		return fmt.Errorf("payload is a %T but the field is a time.Time", raw)
+	}
+	parsed, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return fmt.Errorf("payload timestamp %q is not RFC 3339", s)
+	}
+	got := field.Interface().(time.Time)
+	if !got.Equal(parsed) {
+		return fmt.Errorf("field has %s", got.Format(time.RFC3339))
+	}
+	return nil
+}
+
+func compareString(field reflect.Value, v string) error {
+	if field.Kind() != reflect.String {
+		return fmt.Errorf("payload is a string but the field is %s", field.Kind())
+	}
+	if field.String() != v {
+		return fmt.Errorf("field has %q", field.String())
+	}
+	return nil
+}
+
+func compareBool(field reflect.Value, v bool) error {
+	if field.Kind() != reflect.Bool {
+		return fmt.Errorf("payload is a bool but the field is %s", field.Kind())
+	}
+	if field.Bool() != v {
+		return fmt.Errorf("field has %v", field.Bool())
 	}
 	return nil
 }

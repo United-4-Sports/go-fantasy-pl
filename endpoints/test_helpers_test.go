@@ -74,8 +74,7 @@ func writeTestdata(t *testing.T, w http.ResponseWriter, name string) {
 func readTestdata(t *testing.T, name string) []byte {
 	t.Helper()
 
-	path := filepath.Join("testdata", name)
-	body, err := os.ReadFile(path)
+	body, err := os.ReadFile(testdataPath(t, name))
 	require.NoError(t, err)
 	return body
 }
@@ -85,8 +84,19 @@ func readTestdata(t *testing.T, name string) []byte {
 func writeTestdataFile(t *testing.T, name string, body []byte) {
 	t.Helper()
 
-	path := filepath.Join("testdata", name)
-	require.NoError(t, os.WriteFile(path, body, 0o644))
+	require.NoError(t, os.WriteFile(testdataPath(t, name), body, 0o644))
+}
+
+// testdataPath builds the path for a capture file. Fixture names are
+// sometimes built from API-supplied IDs (element-summary/<id>.json), so a
+// plain name check keeps the path inside testdata/.
+func testdataPath(t *testing.T, name string) string {
+	t.Helper()
+
+	if name == "" || strings.ContainsAny(name, `/\`) {
+		t.Fatalf("invalid testdata fixture name %q", name)
+	}
+	return filepath.Join("testdata", name)
 }
 
 // jsonName formats a testdata filename.
