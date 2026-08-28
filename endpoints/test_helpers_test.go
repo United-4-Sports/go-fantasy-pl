@@ -89,15 +89,21 @@ func readTestdata(t *testing.T, name string) []byte {
 }
 
 // writeTestdataFile persists a fresh capture; used by the live harness in
-// recapture mode. Names come from local format strings, never the API, and
-// the guard keeps the path inside testdata/.
+// recapture mode. Writes go through an os.Root opened on testdata/, which
+// rejects any name that would escape the directory.
 func writeTestdataFile(t *testing.T, name string, body []byte) {
 	t.Helper()
 
-	if name == "" || strings.ContainsAny(name, `/\`) {
-		t.Fatalf("invalid testdata fixture name %q", name)
-	}
-	require.NoError(t, os.WriteFile(filepath.Join("testdata", name), body, 0o644))
+	root, err := os.OpenRoot("testdata")
+	require.NoError(t, err)
+	defer func() { require.NoError(t, root.Close()) }()
+
+	f, err := root.Create(name)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, f.Close()) }()
+
+	_, err = f.Write(body)
+	require.NoError(t, err)
 }
 
 // jsonName formats a testdata filename.
