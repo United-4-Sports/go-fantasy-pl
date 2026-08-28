@@ -347,3 +347,41 @@ func TestCheck_ScalarMismatches(t *testing.T) {
 		})
 	}
 }
+
+func TestInvalidJSONFailsCleanly(t *testing.T) {
+	model := decodeInto[scalarFixture](t, `{"name": "x", "on": true, "when": "2026-08-15T17:30:00Z"}`)
+	bad := []byte(`{not json`)
+
+	t.Run("Check", func(t *testing.T) {
+		mock := &mockTB{TB: t}
+		func() {
+			defer mock.recoverFatal()
+			Check(mock, bad, Spec{Model: &model})
+		}()
+		if !anyContains(mock.failures, "payload is not valid JSON") {
+			t.Fatalf("expected invalid-JSON failure, got: %v", mock.failures)
+		}
+	})
+
+	t.Run("Extract", func(t *testing.T) {
+		mock := &mockTB{TB: t}
+		func() {
+			defer mock.recoverFatal()
+			Extract(mock, bad, "name")
+		}()
+		if !anyContains(mock.failures, "payload is not valid JSON") {
+			t.Fatalf("expected invalid-JSON failure, got: %v", mock.failures)
+		}
+	})
+
+	t.Run("Report", func(t *testing.T) {
+		mock := &mockTB{TB: t}
+		func() {
+			defer mock.recoverFatal()
+			Report(mock, bad, Spec{Model: &model})
+		}()
+		if !anyContains(mock.failures, "payload is not valid JSON") {
+			t.Fatalf("expected invalid-JSON failure, got: %v", mock.failures)
+		}
+	})
+}
