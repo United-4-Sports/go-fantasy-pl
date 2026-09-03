@@ -46,6 +46,11 @@ func SetSharedCache(c cache.Cache) {
 	sharedCache = c
 }
 
+// GetSharedCache returns the current shared cache instance.
+func GetSharedCache() cache.Cache {
+	return sharedCache
+}
+
 // Response represents the full JSON response from the /bootstrap-static/ endpoint.
 type Response struct {
 	Teams    []models.Team       `json:"teams"`
@@ -96,9 +101,34 @@ func (bs *BootstrapService) GetGameWeeks() ([]models.GameWeek, error) {
 }
 
 // GetCurrentGameWeek returns the ID of the current active gameweek.
-// Results are cached for 3 minutes by default.
+// Results are backed by the cached gameweeks section.
 func (bs *BootstrapService) GetCurrentGameWeek() (int, error) {
-	const cacheKey = "current_gameweek"
+	gameweeks, err := bs.GetGameWeeks()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get gameweeks: %w", err)
+	}
+
+	for _, gw := range gameweeks {
+		if gw.IsCurrent {
+			return gw.ID, nil
+		}
+	}
+
+	return 0, fmt.Errorf("failed to find current gameweek")
+}
+
+// nextGameWeekCacheKey returns the cache key for next_gameweek scoped to the API client.
+func (bs *BootstrapService) nextGameWeekCacheKey() string {
+	if u, ok := bs.client.(interface{ BaseURL() string }); ok && u.BaseURL() != "" {
+		return fmt.Sprintf("next_gameweek:%s", u.BaseURL())
+	}
+	return "next_gameweek"
+}
+
+// GetNextGameWeek returns the ID of the next upcoming gameweek (the one marked is_next).
+// Results are cached for 3 minutes by default, scoped to the API client's base URL.
+func (bs *BootstrapService) GetNextGameWeek() (int, error) {
+	cacheKey := bs.nextGameWeekCacheKey()
 	var gw int
 	if sharedCache.Get(cacheKey, &gw) {
 		return gw, nil
@@ -110,15 +140,15 @@ func (bs *BootstrapService) GetCurrentGameWeek() (int, error) {
 	}
 
 	for _, gw := range gameweeks {
-		if gw.IsCurrent {
+		if gw.IsNext {
 			if err := sharedCache.Set(cacheKey, gw.ID, gameweeksCacheTTL); err != nil {
-				return 0, fmt.Errorf("failed to cache current gameweek: %w", err)
+				return 0, fmt.Errorf("failed to cache next gameweek: %w", err)
 			}
 			return gw.ID, nil
 		}
 	}
 
-	return 0, fmt.Errorf("failed to find current gameweek")
+	return 0, fmt.Errorf("failed to find next gameweek")
 }
 
 // GetSettings returns the game settings from the bootstrap-static endpoint.

@@ -73,3 +73,33 @@ func (p *Player) GetDisplayName() string {
 func (p *Player) GetPriceInPounds() float64 {
 	return p.NowCost / 10
 }
+
+// FPL Player availability status codes.
+const (
+	StatusAvailable   = "a" // Available
+	StatusDoubtful    = "d" // Doubtful
+	StatusInjured     = "i" // Injured
+	StatusSuspended   = "s" // Suspended
+	StatusUnavailable = "u" // Unavailable
+	StatusNoSquad     = "n" // Not in squad
+)
+
+// IsAvailable reports whether the player is unflagged and available for selection ("a").
+func (p *Player) IsAvailable() bool {
+	return p.Status == StatusAvailable
+}
+
+// IsInjured reports whether the player is flagged with an injury ("i").
+func (p *Player) IsInjured() bool {
+	return p.Status == StatusInjured
+}
+
+// IsSuspended reports whether the player is currently suspended ("s").
+func (p *Player) IsSuspended() bool {
+	return p.Status == StatusSuspended
+}
+
+// IsDoubtful reports whether the player is flagged as doubtful ("d").
+func (p *Player) IsDoubtful() bool {
+	return p.Status == StatusDoubtful
+}

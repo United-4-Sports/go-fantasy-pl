@@ -125,3 +125,32 @@ func (f *Fixture) GetSaves() (map[string][]StatDetail, error) {
 func (f *Fixture) GetBonus() (map[string][]StatDetail, error) {
 	return f.getStat(StatBonus)
 }
+
+// OpponentID returns the opponent team ID for the given team in this fixture.
+// Returns 0 if the team is not playing in this match.
+func (f *Fixture) OpponentID(teamID int) int {
+	if f.TeamH == teamID {
+		return f.TeamA
+	}
+	if f.TeamA == teamID {
+		return f.TeamH
+	}
+	return 0
+}
+
+// IsHome reports whether the given team is playing at home in this fixture.
+func (f *Fixture) IsHome(teamID int) bool {
+	return f.TeamH == teamID
+}
+
+// DifficultyFor returns the fixture difficulty rating (1..5) for the given team.
+// Returns 0 if the team is not playing in this match.
+func (f *Fixture) DifficultyFor(teamID int) int {
+	if f.TeamH == teamID {
+		return f.TeamHDifficulty
+	}
+	if f.TeamA == teamID {
+		return f.TeamADifficulty
+	}
+	return 0
+}
