@@ -96,14 +96,8 @@ func (bs *BootstrapService) GetGameWeeks() ([]models.GameWeek, error) {
 }
 
 // GetCurrentGameWeek returns the ID of the current active gameweek.
-// Results are cached for 3 minutes by default.
+// Results are backed by the cached gameweeks section.
 func (bs *BootstrapService) GetCurrentGameWeek() (int, error) {
-	const cacheKey = "current_gameweek"
-	var gw int
-	if sharedCache.Get(cacheKey, &gw) {
-		return gw, nil
-	}
-
 	gameweeks, err := bs.GetGameWeeks()
 	if err != nil {
 		return 0, fmt.Errorf("failed to get gameweeks: %w", err)
@@ -111,9 +105,6 @@ func (bs *BootstrapService) GetCurrentGameWeek() (int, error) {
 
 	for _, gw := range gameweeks {
 		if gw.IsCurrent {
-			if err := sharedCache.Set(cacheKey, gw.ID, gameweeksCacheTTL); err != nil {
-				return 0, fmt.Errorf("failed to cache current gameweek: %w", err)
-			}
 			return gw.ID, nil
 		}
 	}
@@ -122,14 +113,8 @@ func (bs *BootstrapService) GetCurrentGameWeek() (int, error) {
 }
 
 // GetNextGameWeek returns the ID of the next upcoming gameweek (the one marked is_next).
-// Results are cached for 3 minutes by default.
+// Results are backed by the cached gameweeks section.
 func (bs *BootstrapService) GetNextGameWeek() (int, error) {
-	const cacheKey = "next_gameweek"
-	var gw int
-	if sharedCache.Get(cacheKey, &gw) {
-		return gw, nil
-	}
-
 	gameweeks, err := bs.GetGameWeeks()
 	if err != nil {
 		return 0, fmt.Errorf("failed to get gameweeks: %w", err)
@@ -137,9 +122,6 @@ func (bs *BootstrapService) GetNextGameWeek() (int, error) {
 
 	for _, gw := range gameweeks {
 		if gw.IsNext {
-			if err := sharedCache.Set(cacheKey, gw.ID, gameweeksCacheTTL); err != nil {
-				return 0, fmt.Errorf("failed to cache next gameweek: %w", err)
-			}
 			return gw.ID, nil
 		}
 	}

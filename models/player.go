@@ -86,13 +86,19 @@ const (
 
 // IsAvailable reports whether the player is currently available for selection.
 // Players flagged as injured, suspended, unavailable, or out of squad are false.
-// Doubtful players with >= 75% chance (or 0% when unflagged) return true.
+// Doubtful players return true only if ChanceOfPlaying is at or above 75%.
+// Available players return true if ChanceOfPlaying is at or above 75% or 0% (unflagged/null).
 func (p *Player) IsAvailable() bool {
 	switch p.Status {
 	case StatusInjured, StatusUnavailable, StatusSuspended, StatusNoSquad:
 		return false
+	case StatusDoubtful:
+		return p.ChanceOfPlaying >= 75
+	case StatusAvailable:
+		return p.ChanceOfPlaying >= 75 || p.ChanceOfPlaying == 0
+	default:
+		return false
 	}
-	return p.ChanceOfPlaying >= 75 || p.ChanceOfPlaying == 0
 }
 
 // IsInjured reports whether the player is flagged with an injury ("i").
