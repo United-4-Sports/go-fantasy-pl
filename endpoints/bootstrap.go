@@ -121,6 +121,32 @@ func (bs *BootstrapService) GetCurrentGameWeek() (int, error) {
 	return 0, fmt.Errorf("failed to find current gameweek")
 }
 
+// GetNextGameWeek returns the ID of the next upcoming gameweek (the one marked is_next).
+// Results are cached for 3 minutes by default.
+func (bs *BootstrapService) GetNextGameWeek() (int, error) {
+	const cacheKey = "next_gameweek"
+	var gw int
+	if sharedCache.Get(cacheKey, &gw) {
+		return gw, nil
+	}
+
+	gameweeks, err := bs.GetGameWeeks()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get gameweeks: %w", err)
+	}
+
+	for _, gw := range gameweeks {
+		if gw.IsNext {
+			if err := sharedCache.Set(cacheKey, gw.ID, gameweeksCacheTTL); err != nil {
+				return 0, fmt.Errorf("failed to cache next gameweek: %w", err)
+			}
+			return gw.ID, nil
+		}
+	}
+
+	return 0, fmt.Errorf("failed to find next gameweek")
+}
+
 // GetSettings returns the game settings from the bootstrap-static endpoint.
 // Results are cached for 24 hours by default.
 func (bs *BootstrapService) GetSettings() (*models.GameSettings, error) {

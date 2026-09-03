@@ -66,3 +66,13 @@ func (gw *GameWeek) IsFinished() bool {
 func (gw *GameWeek) GetTopElementInfo() TopElementInfo {
 	return gw.TopElementInfo
 }
+
+// IsActive returns true if the gameweek is currently underway (started and not yet finished).
+func (gw *GameWeek) IsActive() bool {
+	return gw.IsCurrent && !gw.Finished
+}
+
+// IsUpcoming returns true if the gameweek is scheduled for the future (is_next or unstarted).
+func (gw *GameWeek) IsUpcoming() bool {
+	return gw.IsNext || (!gw.IsPrevious && !gw.IsCurrent && !gw.Finished)
+}

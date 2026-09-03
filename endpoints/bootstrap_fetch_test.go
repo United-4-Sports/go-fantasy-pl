@@ -53,6 +53,10 @@ func TestBootstrapFetchedOnceForAllSections(t *testing.T) {
 	require.NoError(t, err)
 	require.NotZero(t, settings)
 
+	nextGW, err := c.Bootstrap.GetNextGameWeek()
+	require.NoError(t, err)
+	require.Positive(t, nextGW)
+
 	require.EqualValues(t, 1, bootstrapFetches.Load(),
 		"all bootstrap sections must be served by a single upstream fetch")
 }
