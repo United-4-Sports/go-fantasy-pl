@@ -197,13 +197,13 @@ func TestFixtureHelpers(t *testing.T) {
 		t.Errorf("DifficultyFor(3) = %d, want 0", diff)
 	}
 
-	if got := f.OpponentDescriptor(1, "Aston Villa"); got != "Aston Villa (H)" {
-		t.Errorf("OpponentDescriptor(1) = %q, want 'Aston Villa (H)'", got)
+	if got := f.OpponentDescriptor(1, "Opponent A"); got != "Opponent A (H)" {
+		t.Errorf("OpponentDescriptor(1) = %q, want 'Opponent A (H)'", got)
 	}
-	if got := f.OpponentDescriptor(2, "Arsenal"); got != "Arsenal (A)" {
-		t.Errorf("OpponentDescriptor(2) = %q, want 'Arsenal (A)'", got)
+	if got := f.OpponentDescriptor(2, "Opponent B"); got != "Opponent B (A)" {
+		t.Errorf("OpponentDescriptor(2) = %q, want 'Opponent B (A)'", got)
 	}
-	if got := f.OpponentDescriptor(3, "Chelsea"); got != "" {
+	if got := f.OpponentDescriptor(3, "Opponent C"); got != "" {
 		t.Errorf("OpponentDescriptor(3) = %q, want ''", got)
 	}
 }
