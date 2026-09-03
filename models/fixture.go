@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -154,3 +155,17 @@ func (f *Fixture) DifficultyFor(teamID int) int {
 	}
 	return 0
 }
+
+// OpponentDescriptor returns a formatted opponent description with venue indicator, e.g. "Chelsea (H)" or "Arsenal (A)".
+// If the given team is not playing in this match, it returns an empty string.
+func (f *Fixture) OpponentDescriptor(teamID int, opponentName string) string {
+	if f.TeamH != teamID && f.TeamA != teamID {
+		return ""
+	}
+	venue := "A"
+	if f.IsHome(teamID) {
+		venue = "H"
+	}
+	return fmt.Sprintf("%s (%s)", opponentName, venue)
+}
+

@@ -76,3 +76,12 @@ func (gw *GameWeek) IsActive() bool {
 func (gw *GameWeek) IsUpcoming() bool {
 	return gw.IsNext || (!gw.IsPrevious && !gw.IsCurrent && !gw.Finished)
 }
+
+// DeadlinePassed reports whether the gameweek's deadline has already passed.
+func (gw *GameWeek) DeadlinePassed() bool {
+	if gw.DeadlineTime.IsZero() {
+		return false
+	}
+	return time.Now().UTC().After(gw.DeadlineTime)
+}
+

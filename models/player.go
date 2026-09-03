@@ -2,6 +2,10 @@
 // These models map directly to the JSON responses from the official FPL API.
 package models
 
+import (
+	"strconv"
+)
+
 // Player represents an FPL player (referred to as an "element" in the API).
 // It contains summary data, current season performance, and ownership statistics.
 type Player struct {
@@ -103,3 +107,91 @@ func (p *Player) IsSuspended() bool {
 func (p *Player) IsDoubtful() bool {
 	return p.Status == StatusDoubtful
 }
+
+func parseFloat(s string) float64 {
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+// GetForm returns the player's recent form as a float64 (0.0 if empty or unparsable).
+func (p *Player) GetForm() float64 {
+	return parseFloat(p.Form)
+}
+
+// GetPointsPerGame returns the player's points per game as a float64 (0.0 if empty or unparsable).
+func (p *Player) GetPointsPerGame() float64 {
+	return parseFloat(p.PointsPerGame)
+}
+
+// GetEpNext returns FPL's expected points next round as a float64 (0.0 if empty or unparsable).
+func (p *Player) GetEpNext() float64 {
+	return parseFloat(p.EpNext)
+}
+
+// GetEpThis returns FPL's expected points this round as a float64 (0.0 if empty or unparsable).
+func (p *Player) GetEpThis() float64 {
+	return parseFloat(p.EpThis)
+}
+
+// GetIctIndex returns the player's ICT index as a float64 (0.0 if empty or unparsable).
+func (p *Player) GetIctIndex() float64 {
+	return parseFloat(p.IctIndex)
+}
+
+// GetSelectedByPercent returns the percentage of managers owning the player as a float64 (0.0 if empty or unparsable).
+func (p *Player) GetSelectedByPercent() float64 {
+	return parseFloat(p.SelectedByPercent)
+}
+
+// GetExpectedGoals returns the player's expected goals (xG) as a float64 (0.0 if empty or unparsable).
+func (p *Player) GetExpectedGoals() float64 {
+	return parseFloat(p.ExpectedGoals)
+}
+
+// GetExpectedAssists returns the player's expected assists (xA) as a float64 (0.0 if empty or unparsable).
+func (p *Player) GetExpectedAssists() float64 {
+	return parseFloat(p.ExpectedAssists)
+}
+
+// GetExpectedGoalInvolvements returns expected goal involvements (xGI) as a float64 (0.0 if empty or unparsable).
+func (p *Player) GetExpectedGoalInvolvements() float64 {
+	return parseFloat(p.ExpectedGoalInvolvements)
+}
+
+// GetExpectedGoalsConceded returns expected goals conceded (xGC) as a float64 (0.0 if empty or unparsable).
+func (p *Player) GetExpectedGoalsConceded() float64 {
+	return parseFloat(p.ExpectedGoalsConceded)
+}
+
+// Standard FPL position element types.
+const (
+	ElementTypeGoalkeeper = 1
+	ElementTypeDefender   = 2
+	ElementTypeMidfielder = 3
+	ElementTypeForward    = 4
+)
+
+// PositionName returns the human-readable position name for an element type code ("goalkeeper", "defender", "midfielder", "forward", or "unknown").
+func PositionName(elementType int) string {
+	switch elementType {
+	case ElementTypeGoalkeeper:
+		return "goalkeeper"
+	case ElementTypeDefender:
+		return "defender"
+	case ElementTypeMidfielder:
+		return "midfielder"
+	case ElementTypeForward:
+		return "forward"
+	default:
+		return "unknown"
+	}
+}
+
+// GetPositionName returns the human-readable position label for this player.
+func (p *Player) GetPositionName() string {
+	return PositionName(p.ElementType)
+}
+

@@ -25,6 +25,16 @@ type CurrentEvents struct {
 	PointsOnBench      int `json:"points_on_bench"`      // Points scored by bench players
 }
 
+// GetTeamValueInMillions returns the team value in millions of pounds (e.g. 100.5).
+func (c *CurrentEvents) GetTeamValueInMillions() float64 {
+	return float64(c.Value) / 10
+}
+
+// GetBankValueInMillions returns the bank balance in millions of pounds (e.g. 1.2).
+func (c *CurrentEvents) GetBankValueInMillions() float64 {
+	return float64(c.Bank) / 10
+}
+
 // PastSeason represents the details of a past season.
 type PastSeason struct {
 	SeasonName  string `json:"season_name"`  // Name of the season (e.g., "2020/21")

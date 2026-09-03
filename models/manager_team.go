@@ -42,11 +42,41 @@ type Pick struct {
 	ElementType   int  `json:"element_type"`    // Type of the player (e.g., defender, midfielder)
 }
 
+// IsStarter reports whether the pick is in the starting XI (positions 1-11).
+func (p *Pick) IsStarter() bool {
+	return p.Position >= 1 && p.Position <= 11
+}
+
+// IsBench reports whether the pick is on the bench (positions 12-15).
+func (p *Pick) IsBench() bool {
+	return p.Position > 11
+}
+
+// GetCaptain returns the pick designated as captain, or nil if none is set.
+func (mt *ManagerTeam) GetCaptain() *Pick {
+	for i := range mt.Picks {
+		if mt.Picks[i].IsCaptain {
+			return &mt.Picks[i]
+		}
+	}
+	return nil
+}
+
+// GetViceCaptain returns the pick designated as vice-captain, or nil if none is set.
+func (mt *ManagerTeam) GetViceCaptain() *Pick {
+	for i := range mt.Picks {
+		if mt.Picks[i].IsViceCaptain {
+			return &mt.Picks[i]
+		}
+	}
+	return nil
+}
+
 // GetStartingXI returns the 11 players in the starting lineup.
 func (mt *ManagerTeam) GetStartingXI() []Pick {
 	starters := make([]Pick, 0, 11)
 	for _, pick := range mt.Picks {
-		if pick.Position <= 11 {
+		if pick.IsStarter() {
 			starters = append(starters, pick)
 		}
 	}
@@ -57,7 +87,7 @@ func (mt *ManagerTeam) GetStartingXI() []Pick {
 func (mt *ManagerTeam) GetBench() []Pick {
 	bench := make([]Pick, 0, 4)
 	for _, pick := range mt.Picks {
-		if pick.Position > 11 {
+		if pick.IsBench() {
 			bench = append(bench, pick)
 		}
 	}
