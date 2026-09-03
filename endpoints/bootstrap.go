@@ -3,8 +3,10 @@
 package endpoints
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -85,25 +87,45 @@ func NewBootstrapService(client api.Client) *BootstrapService {
 // GetTeams returns a list of all Premier League teams.
 // Results are cached for 24 hours by default.
 func (bs *BootstrapService) GetTeams() ([]models.Team, error) {
-	return bootstrapSection(bs, "teams", func(r *Response) []models.Team { return r.Teams })
+	return bs.GetTeamsWithContext(context.Background())
+}
+
+// GetTeamsWithContext returns a list of all Premier League teams with context.
+func (bs *BootstrapService) GetTeamsWithContext(ctx context.Context) ([]models.Team, error) {
+	return bootstrapSection(ctx, bs, "teams", func(r *Response) []models.Team { return r.Teams })
 }
 
 // GetPlayers returns a list of all Premier League players (elements).
 // Results are cached for 10 minutes by default.
 func (bs *BootstrapService) GetPlayers() ([]models.Player, error) {
-	return bootstrapSection(bs, "players", func(r *Response) []models.Player { return r.Elements })
+	return bs.GetPlayersWithContext(context.Background())
+}
+
+// GetPlayersWithContext returns a list of all Premier League players with context.
+func (bs *BootstrapService) GetPlayersWithContext(ctx context.Context) ([]models.Player, error) {
+	return bootstrapSection(ctx, bs, "players", func(r *Response) []models.Player { return r.Elements })
 }
 
 // GetGameWeeks returns a list of all gameweeks (events) for the season.
 // Results are cached for 3 minutes by default.
 func (bs *BootstrapService) GetGameWeeks() ([]models.GameWeek, error) {
-	return bootstrapSection(bs, "gameweeks", func(r *Response) []models.GameWeek { return r.Events })
+	return bs.GetGameWeeksWithContext(context.Background())
+}
+
+// GetGameWeeksWithContext returns a list of all gameweeks (events) with context.
+func (bs *BootstrapService) GetGameWeeksWithContext(ctx context.Context) ([]models.GameWeek, error) {
+	return bootstrapSection(ctx, bs, "gameweeks", func(r *Response) []models.GameWeek { return r.Events })
 }
 
 // GetCurrentGameWeek returns the ID of the current active gameweek.
 // Results are backed by the cached gameweeks section.
 func (bs *BootstrapService) GetCurrentGameWeek() (int, error) {
-	gameweeks, err := bs.GetGameWeeks()
+	return bs.GetCurrentGameWeekWithContext(context.Background())
+}
+
+// GetCurrentGameWeekWithContext returns the ID of the current active gameweek with context.
+func (bs *BootstrapService) GetCurrentGameWeekWithContext(ctx context.Context) (int, error) {
+	gameweeks, err := bs.GetGameWeeksWithContext(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get gameweeks: %w", err)
 	}
@@ -128,13 +150,18 @@ func (bs *BootstrapService) nextGameWeekCacheKey() string {
 // GetNextGameWeek returns the ID of the next upcoming gameweek (the one marked is_next).
 // Results are cached for 3 minutes by default, scoped to the API client's base URL.
 func (bs *BootstrapService) GetNextGameWeek() (int, error) {
+	return bs.GetNextGameWeekWithContext(context.Background())
+}
+
+// GetNextGameWeekWithContext returns the ID of the next upcoming gameweek with context.
+func (bs *BootstrapService) GetNextGameWeekWithContext(ctx context.Context) (int, error) {
 	cacheKey := bs.nextGameWeekCacheKey()
 	var gw int
 	if sharedCache.Get(cacheKey, &gw) {
 		return gw, nil
 	}
 
-	gameweeks, err := bs.GetGameWeeks()
+	gameweeks, err := bs.GetGameWeeksWithContext(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get gameweeks: %w", err)
 	}
@@ -151,10 +178,60 @@ func (bs *BootstrapService) GetNextGameWeek() (int, error) {
 	return 0, fmt.Errorf("failed to find next gameweek")
 }
 
+// GetNextGameWeekModel returns the next upcoming gameweek model (the one marked is_next) with context.
+func (bs *BootstrapService) GetNextGameWeekModel(ctx context.Context) (*models.GameWeek, error) {
+	gameweeks, err := bs.GetGameWeeksWithContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get gameweeks: %w", err)
+	}
+
+	for i := range gameweeks {
+		if gameweeks[i].IsNext {
+			return &gameweeks[i], nil
+		}
+	}
+
+	return nil, fmt.Errorf("failed to find next gameweek")
+}
+
+// GetUpcomingGameWeeks returns the next count upcoming gameweeks, ordered chronologically.
+func (bs *BootstrapService) GetUpcomingGameWeeks(ctx context.Context, count int) ([]models.GameWeek, error) {
+	if count <= 0 {
+		return []models.GameWeek{}, nil
+	}
+
+	gameweeks, err := bs.GetGameWeeksWithContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get gameweeks: %w", err)
+	}
+
+	var upcoming []models.GameWeek
+	for _, gw := range gameweeks {
+		if gw.IsUpcoming() {
+			upcoming = append(upcoming, gw)
+		}
+	}
+
+	sort.Slice(upcoming, func(i, j int) bool {
+		return upcoming[i].ID < upcoming[j].ID
+	})
+
+	if len(upcoming) > count {
+		upcoming = upcoming[:count]
+	}
+
+	return upcoming, nil
+}
+
 // GetSettings returns the game settings from the bootstrap-static endpoint.
 // Results are cached for 24 hours by default.
 func (bs *BootstrapService) GetSettings() (*models.GameSettings, error) {
-	settings, err := bootstrapSection(bs, "settings", func(r *Response) models.GameSettings { return r.Settings })
+	return bs.GetSettingsWithContext(context.Background())
+}
+
+// GetSettingsWithContext returns the game settings with context.
+func (bs *BootstrapService) GetSettingsWithContext(ctx context.Context) (*models.GameSettings, error) {
+	settings, err := bootstrapSection(ctx, bs, "settings", func(r *Response) models.GameSettings { return r.Settings })
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +242,7 @@ func (bs *BootstrapService) GetSettings() (*models.GameSettings, error) {
 // On a miss it fetches /bootstrap-static/ at most once under a shared lock
 // and populates every section's cache key with its own TTL, so callers
 // asking for several sections never trigger several downloads.
-func bootstrapSection[T any](bs *BootstrapService, cacheKey string, extract func(*Response) T) (T, error) {
+func bootstrapSection[T any](ctx context.Context, bs *BootstrapService, cacheKey string, extract func(*Response) T) (T, error) {
 	var cached T
 	if sharedCache.Get(cacheKey, &cached) {
 		return cached, nil
@@ -180,7 +257,11 @@ func bootstrapSection[T any](bs *BootstrapService, cacheKey string, extract func
 		return cached, nil
 	}
 
-	resp, err := bs.client.Get(bootstrapEndpoint)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	resp, err := bs.client.GetContext(ctx, bootstrapEndpoint)
 	if err != nil {
 		return cached, fmt.Errorf("failed to get bootstrap data: %w", err)
 	}

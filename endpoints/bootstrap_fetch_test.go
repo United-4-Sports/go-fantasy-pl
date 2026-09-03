@@ -1,6 +1,7 @@
 package endpoints_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -104,4 +105,61 @@ func TestGetNextGameWeek_CacheScopedToClient(t *testing.T) {
 	require.True(t, endpoints.GetSharedCache().Get("next_gameweek:"+serverB.URL, &valB))
 	require.Equal(t, gwA, valA)
 	require.Equal(t, gwB, valB)
+}
+
+func TestBootstrapGameweekHelpersAndContext(t *testing.T) {
+	memCache := cache.NewMemoryCache()
+	endpoints.SetSharedCache(memCache)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/bootstrap-static/" {
+			writeTestdata(t, w, "bootstrap-static.json")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(server.Close)
+
+	c, err := client.NewClient(
+		client.WithBaseURL(server.URL),
+		client.WithMemoryCache(),
+	)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// GetCurrentGameWeekWithContext
+	currentGW, err := c.Bootstrap.GetCurrentGameWeekWithContext(ctx)
+	require.NoError(t, err)
+	require.Positive(t, currentGW)
+
+	// GetNextGameWeekWithContext
+	nextGW, err := c.Bootstrap.GetNextGameWeekWithContext(ctx)
+	require.NoError(t, err)
+	require.Positive(t, nextGW)
+
+	// GetNextGameWeekModel
+	nextModel, err := c.Bootstrap.GetNextGameWeekModel(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, nextModel)
+	require.Equal(t, nextGW, nextModel.ID)
+	require.True(t, nextModel.IsNext)
+
+	// GetUpcomingGameWeeks
+	upcoming, err := c.Bootstrap.GetUpcomingGameWeeks(ctx, 3)
+	require.NoError(t, err)
+	require.NotEmpty(t, upcoming)
+	require.LessOrEqual(t, len(upcoming), 3)
+	for _, gw := range upcoming {
+		require.True(t, gw.IsUpcoming())
+	}
+
+	// Canceled context should return error
+	canceledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	memCacheCanceled := cache.NewMemoryCache()
+	endpoints.SetSharedCache(memCacheCanceled)
+	_, err = c.Bootstrap.GetPlayersWithContext(canceledCtx)
+	require.Error(t, err)
 }
