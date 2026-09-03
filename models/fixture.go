@@ -168,4 +168,3 @@ func (f *Fixture) OpponentDescriptor(teamID int, opponentName string) string {
 	}
 	return fmt.Sprintf("%s (%s)", opponentName, venue)
 }
-

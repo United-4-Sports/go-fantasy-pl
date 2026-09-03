@@ -258,6 +258,15 @@ func TestManagerTeamAndPickHelpers(t *testing.T) {
 		t.Errorf("pick[4] IsStarter/IsBench = %v/%v, want false/true", picks[4].IsStarter(), picks[4].IsBench())
 	}
 
+	invalidPick := Pick{Element: 99, Position: 16}
+	if invalidPick.IsStarter() || invalidPick.IsBench() {
+		t.Errorf("invalidPick (position 16) IsStarter/IsBench = %v/%v, want false/false", invalidPick.IsStarter(), invalidPick.IsBench())
+	}
+	zeroPick := Pick{Element: 98, Position: 0}
+	if zeroPick.IsStarter() || zeroPick.IsBench() {
+		t.Errorf("zeroPick (position 0) IsStarter/IsBench = %v/%v, want false/false", zeroPick.IsStarter(), zeroPick.IsBench())
+	}
+
 	team := ManagerTeam{Picks: picks}
 	capt := team.GetCaptain()
 	if capt == nil || capt.Element != 20 {
@@ -290,4 +299,3 @@ func TestManagerHistoryHelpers(t *testing.T) {
 		t.Errorf("GetBankValueInMillions() = %v, want 2.5", got)
 	}
 }
-

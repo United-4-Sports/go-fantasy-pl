@@ -163,4 +163,3 @@ func TestBootstrapGameweekHelpersAndContext(t *testing.T) {
 	_, err = c.Bootstrap.GetPlayersWithContext(canceledCtx)
 	require.Error(t, err)
 }
-

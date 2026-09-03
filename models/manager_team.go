@@ -49,7 +49,7 @@ func (p *Pick) IsStarter() bool {
 
 // IsBench reports whether the pick is on the bench (positions 12-15).
 func (p *Pick) IsBench() bool {
-	return p.Position > 11
+	return p.Position >= 12 && p.Position <= 15
 }
 
 // GetCaptain returns the pick designated as captain, or nil if none is set.

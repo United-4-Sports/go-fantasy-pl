@@ -84,4 +84,3 @@ func (gw *GameWeek) DeadlinePassed() bool {
 	}
 	return time.Now().UTC().After(gw.DeadlineTime)
 }
-

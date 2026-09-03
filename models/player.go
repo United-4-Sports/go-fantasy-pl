@@ -194,4 +194,3 @@ func PositionName(elementType int) string {
 func (p *Player) GetPositionName() string {
 	return PositionName(p.ElementType)
 }
-
