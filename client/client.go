@@ -94,6 +94,11 @@ func NewClient(opts ...Option) (*Client, error) {
 	return c, nil
 }
 
+// BaseURL returns the configured base URL for the FPL API.
+func (c *Client) BaseURL() string {
+	return c.baseURL
+}
+
 // Get performs a rate-limited GET request to the specified endpoint relative to the baseURL.
 func (c *Client) Get(endpoint string) (*http.Response, error) {
 	c.rateLimit.Wait()

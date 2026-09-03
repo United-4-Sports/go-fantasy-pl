@@ -17,7 +17,8 @@ import (
 // cold cache triggers exactly one /bootstrap-static/ download and every
 // section is served from it.
 func TestBootstrapFetchedOnceForAllSections(t *testing.T) {
-	endpoints.SetSharedCache(cache.NewMemoryCache())
+	memCache := cache.NewMemoryCache()
+	endpoints.SetSharedCache(memCache)
 
 	var bootstrapFetches atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -57,6 +58,50 @@ func TestBootstrapFetchedOnceForAllSections(t *testing.T) {
 	require.NoError(t, err)
 	require.Positive(t, nextGW)
 
+	var cachedGW int
+	require.True(t, endpoints.GetSharedCache().Get("next_gameweek:"+server.URL, &cachedGW))
+	require.Equal(t, nextGW, cachedGW)
+
 	require.EqualValues(t, 1, bootstrapFetches.Load(),
 		"all bootstrap sections must be served by a single upstream fetch")
+}
+
+// TestGetNextGameWeek_CacheScopedToClient ensures next_gameweek cache keys
+// are isolated per API client base URL.
+func TestGetNextGameWeek_CacheScopedToClient(t *testing.T) {
+	t.Setenv("FPL_CACHE_BACKEND", "memory")
+	memCache := cache.NewMemoryCache()
+	endpoints.SetSharedCache(memCache)
+
+	serverA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		writeTestdata(t, w, "bootstrap-static.json")
+	}))
+	t.Cleanup(serverA.Close)
+
+	serverB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		writeTestdata(t, w, "bootstrap-static.json")
+	}))
+	t.Cleanup(serverB.Close)
+
+	clientA, err := client.NewClient(client.WithBaseURL(serverA.URL))
+	require.NoError(t, err)
+
+	clientB, err := client.NewClient(client.WithBaseURL(serverB.URL))
+	require.NoError(t, err)
+
+	gwA, err := clientA.Bootstrap.GetNextGameWeek()
+	require.NoError(t, err)
+
+	gwB, err := clientB.Bootstrap.GetNextGameWeek()
+	require.NoError(t, err)
+
+	require.Equal(t, gwA, gwB)
+
+	var valA, valB int
+	require.True(t, endpoints.GetSharedCache().Get("next_gameweek:"+serverA.URL, &valA))
+	require.True(t, endpoints.GetSharedCache().Get("next_gameweek:"+serverB.URL, &valB))
+	require.Equal(t, gwA, valA)
+	require.Equal(t, gwB, valB)
 }
