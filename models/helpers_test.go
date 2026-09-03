@@ -26,7 +26,7 @@ func TestPlayerHelpers(t *testing.T) {
 		{
 			name:      "doubtful with 75% chance",
 			player:    Player{Status: StatusDoubtful, ChanceOfPlaying: 75},
-			available: true,
+			available: false,
 			doubtful:  true,
 		},
 		{
@@ -44,7 +44,7 @@ func TestPlayerHelpers(t *testing.T) {
 		{
 			name:      "available with 50% chance",
 			player:    Player{Status: StatusAvailable, ChanceOfPlaying: 50},
-			available: false,
+			available: true,
 		},
 		{
 			name:      "injured",
