@@ -25,7 +25,7 @@ func TestGetH2HLeagueMatches(t *testing.T) {
 		}))
 		defer server.Close()
 
-		c, err := client.NewClient(client.WithBaseURL(server.URL), client.WithMemoryCache())
+		c, err := client.NewClient(client.WithBaseURL(server.URL), freshMemoryCache(t))
 		require.NoError(t, err)
 
 		resp, err := c.Leagues.GetH2HLeagueMatches(1221170, 1, 3)
@@ -37,7 +37,7 @@ func TestGetH2HLeagueMatches(t *testing.T) {
 	})
 
 	t.Run("invalid input", func(t *testing.T) {
-		c, err := client.NewClient(client.WithMemoryCache())
+		c, err := client.NewClient(freshMemoryCache(t))
 		require.NoError(t, err)
 
 		resp, err := c.Leagues.GetH2HLeagueMatches(0, 1, 0)
@@ -59,7 +59,7 @@ func TestGetH2HLeagueMatches(t *testing.T) {
 		}))
 		defer server.Close()
 
-		c, err := client.NewClient(client.WithBaseURL(server.URL), client.WithMemoryCache())
+		c, err := client.NewClient(client.WithBaseURL(server.URL), freshMemoryCache(t))
 		require.NoError(t, err)
 
 		resp, err := c.Leagues.GetH2HLeagueMatches(1221170, 1, 0)
@@ -75,7 +75,7 @@ func TestGetH2HLeagueMatches(t *testing.T) {
 		}))
 		defer server.Close()
 
-		c, err := client.NewClient(client.WithBaseURL(server.URL), client.WithMemoryCache())
+		c, err := client.NewClient(client.WithBaseURL(server.URL), freshMemoryCache(t))
 		require.NoError(t, err)
 
 		resp, err := c.Leagues.GetH2HLeagueMatches(1221170, 1, 0)
@@ -90,7 +90,7 @@ func TestGetH2HLeagueMatches(t *testing.T) {
 		}))
 		defer server.Close()
 
-		c, err := client.NewClient(client.WithBaseURL(server.URL), client.WithMemoryCache())
+		c, err := client.NewClient(client.WithBaseURL(server.URL), freshMemoryCache(t))
 		require.NoError(t, err)
 
 		resp, err := c.Leagues.GetH2HLeagueMatches(1221170, 1, 0)
@@ -139,7 +139,7 @@ func TestGetH2HLeagueMatches_MixedFeedWithoutEvent(t *testing.T) {
 	server := newH2HSemanticsServer(t)
 	defer server.Close()
 
-	c, err := client.NewClient(client.WithBaseURL(server.URL), client.WithMemoryCache())
+	c, err := client.NewClient(client.WithBaseURL(server.URL), freshMemoryCache(t))
 	require.NoError(t, err)
 
 	feed, err := c.Leagues.GetH2HLeagueMatches(1221170, 1, 0)
@@ -158,7 +158,7 @@ func TestGetH2HLeagueMatches_EventFilterSingleGameweek(t *testing.T) {
 	server := newH2HSemanticsServer(t)
 	defer server.Close()
 
-	c, err := client.NewClient(client.WithBaseURL(server.URL), client.WithMemoryCache())
+	c, err := client.NewClient(client.WithBaseURL(server.URL), freshMemoryCache(t))
 	require.NoError(t, err)
 
 	feed, err := c.Leagues.GetH2HLeagueMatches(1221170, 1, 1)
@@ -174,7 +174,7 @@ func TestGetH2HLeagueMatches_EmptyFilteredPage(t *testing.T) {
 	server := newH2HSemanticsServer(t)
 	defer server.Close()
 
-	c, err := client.NewClient(client.WithBaseURL(server.URL), client.WithMemoryCache())
+	c, err := client.NewClient(client.WithBaseURL(server.URL), freshMemoryCache(t))
 	require.NoError(t, err)
 
 	feed, err := c.Leagues.GetH2HLeagueMatches(1221170, 2, 1)
@@ -190,7 +190,7 @@ func TestGetH2HLeagueMatches_KnockoutRound(t *testing.T) {
 	server := newH2HSemanticsServer(t)
 	defer server.Close()
 
-	c, err := client.NewClient(client.WithBaseURL(server.URL), client.WithMemoryCache())
+	c, err := client.NewClient(client.WithBaseURL(server.URL), freshMemoryCache(t))
 	require.NoError(t, err)
 
 	feed, err := c.Leagues.GetH2HLeagueMatches(1221170, 1, 37)
@@ -214,7 +214,7 @@ func TestGetH2HLeagueMatches_InvalidEventReturnsDomainError(t *testing.T) {
 	server := newH2HSemanticsServer(t)
 	defer server.Close()
 
-	c, err := client.NewClient(client.WithBaseURL(server.URL), client.WithMemoryCache())
+	c, err := client.NewClient(client.WithBaseURL(server.URL), freshMemoryCache(t))
 	require.NoError(t, err)
 
 	feed, err := c.Leagues.GetH2HLeagueMatches(1221170, 1, 999)
@@ -239,7 +239,7 @@ func TestGetH2HLeagueStandings(t *testing.T) {
 	}))
 	defer server.Close()
 
-	c, err := client.NewClient(client.WithBaseURL(server.URL), client.WithMemoryCache())
+	c, err := client.NewClient(client.WithBaseURL(server.URL), freshMemoryCache(t))
 	require.NoError(t, err)
 
 	standings, err := c.Leagues.GetH2HLeagueStandings(1221170, 1)

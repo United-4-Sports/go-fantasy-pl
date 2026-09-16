@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/AbdoAnss/go-fantasy-pl/endpoints"
+	"github.com/AbdoAnss/go-fantasy-pl/internal/cache"
 )
 
 const (
@@ -28,6 +29,7 @@ type Client struct {
 	rateLimit  *rateLimiter
 	cacheErr   error // stores errors from cache configuration to be returned by NewClient
 	cacheSet   bool
+	cache      cache.Cache // explicit cache; nil uses the legacy shared cache
 
 	// Bootstrap provides access to core FPL data like players, teams, and gameweeks.
 	Bootstrap *endpoints.BootstrapService
@@ -93,6 +95,14 @@ func NewClient(opts ...Option) (*Client, error) {
 
 	return c, nil
 }
+
+// Cache is the concurrent JSON cache contract accepted by WithCache.
+// It is an alias, so existing implementations need no changes.
+type Cache = cache.Cache
+
+// Cache returns this client's explicit cache, or nil when it uses the legacy
+// shared cache. The caller owns explicitly supplied cache resources.
+func (c *Client) Cache() Cache { return c.cache }
 
 // BaseURL returns the configured base URL for the FPL API.
 func (c *Client) BaseURL() string {

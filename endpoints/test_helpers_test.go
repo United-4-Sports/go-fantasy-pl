@@ -15,6 +15,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// freshMemoryCache gives each mock-upstream test an empty legacy cache.
+// Production WithMemoryCache intentionally reuses entries across clients.
+func freshMemoryCache(t *testing.T) client.Option {
+	t.Helper()
+	return func(c *client.Client) {
+		client.WithMemoryCache()(c)
+		endpoints.GetSharedCache().Clear()
+	}
+}
+
 const liveTestEnv = "FPL_LIVE_TEST"
 
 func skipUnlessLive(t *testing.T) {
@@ -60,7 +70,7 @@ func newEndpointTestClient(t *testing.T) (*client.Client, *httptest.Server) {
 
 	c, err := client.NewClient(
 		client.WithBaseURL(server.URL),
-		client.WithMemoryCache(),
+		freshMemoryCache(t),
 	)
 	require.NoError(t, err)
 

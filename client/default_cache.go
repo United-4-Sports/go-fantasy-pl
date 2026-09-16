@@ -20,6 +20,10 @@ const (
 	defaultRedisKeyPrefix = "go-fantasy-pl"
 )
 
+// Reuse memory entries across client construction, just as Redis does.
+// Applications with different upstreams must supply separate explicit caches.
+var defaultMemoryCache = cache.NewMemoryCache()
+
 func configureDefaultCache() error {
 	backend := strings.ToLower(strings.TrimSpace(os.Getenv(cacheBackendEnv)))
 
@@ -29,7 +33,7 @@ func configureDefaultCache() error {
 	case "redis":
 		return configureRedisStrict()
 	case "memory":
-		endpoints.SetSharedCache(cache.NewMemoryCache())
+		endpoints.SetSharedCache(defaultMemoryCache)
 		return nil
 	default:
 		return fmt.Errorf("unsupported %s value %q", cacheBackendEnv, backend)
@@ -44,7 +48,7 @@ func configureRedisWithFallback() error {
 
 	rc, err := cache.NewRedisCache(cache.RedisOptions(opts))
 	if err != nil {
-		endpoints.SetSharedCache(cache.NewMemoryCache())
+		endpoints.SetSharedCache(defaultMemoryCache)
 		return nil
 	}
 

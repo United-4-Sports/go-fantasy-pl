@@ -54,7 +54,7 @@ func NewLiveService(client api.Client) *LiveService {
 func (ls *LiveService) GetEventLive(eventID int) (*models.EventLive, error) {
 	cacheKey := fmt.Sprintf("event_live_%d", eventID)
 	var live models.EventLive
-	if sharedCache.Get(cacheKey, &live) {
+	if cacheFor(ls.client).Get(cacheKey, &live) {
 		return &live, nil
 	}
 
@@ -86,7 +86,7 @@ func (ls *LiveService) GetEventLive(eventID int) (*models.EventLive, error) {
 		return nil, fmt.Errorf("event live data for gameweek %d is missing elements", eventID)
 	}
 
-	if err := sharedCache.Set(cacheKey, &live, eventLiveCacheTTL); err != nil {
+	if err := cacheFor(ls.client).Set(cacheKey, &live, eventLiveCacheTTL); err != nil {
 		return nil, fmt.Errorf("failed to cache event live data: %w", err)
 	}
 

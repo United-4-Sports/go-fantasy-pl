@@ -133,7 +133,7 @@ func TestNewClient_WithMemoryCacheOverridesDefaultRedis(t *testing.T) {
 	teams, err := c.Bootstrap.GetTeams()
 	require.NoError(t, err)
 	require.Len(t, teams, 1)
-	assert.False(t, mr.Exists("memory-override:teams"))
+	assert.Empty(t, mr.Keys(), "memory override must not write Redis")
 }
 
 func TestGetRaw_ReturnsUndecodedBody(t *testing.T) {

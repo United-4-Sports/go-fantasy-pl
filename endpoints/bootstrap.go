@@ -157,7 +157,7 @@ func (bs *BootstrapService) GetNextGameWeek() (int, error) {
 func (bs *BootstrapService) GetNextGameWeekWithContext(ctx context.Context) (int, error) {
 	cacheKey := bs.nextGameWeekCacheKey()
 	var gw int
-	if sharedCache.Get(cacheKey, &gw) {
+	if cacheFor(bs.client).Get(cacheKey, &gw) {
 		return gw, nil
 	}
 
@@ -168,7 +168,7 @@ func (bs *BootstrapService) GetNextGameWeekWithContext(ctx context.Context) (int
 
 	for _, gw := range gameweeks {
 		if gw.IsNext {
-			if err := sharedCache.Set(cacheKey, gw.ID, gameweeksCacheTTL); err != nil {
+			if err := cacheFor(bs.client).Set(cacheKey, gw.ID, gameweeksCacheTTL); err != nil {
 				return 0, fmt.Errorf("failed to cache next gameweek: %w", err)
 			}
 			return gw.ID, nil
@@ -244,7 +244,7 @@ func (bs *BootstrapService) GetSettingsWithContext(ctx context.Context) (*models
 // asking for several sections never trigger several downloads.
 func bootstrapSection[T any](ctx context.Context, bs *BootstrapService, cacheKey string, extract func(*Response) T) (T, error) {
 	var cached T
-	if sharedCache.Get(cacheKey, &cached) {
+	if cacheFor(bs.client).Get(cacheKey, &cached) {
 		return cached, nil
 	}
 
@@ -253,7 +253,7 @@ func bootstrapSection[T any](ctx context.Context, bs *BootstrapService, cacheKey
 
 	// Re-check under the lock: another goroutine may have populated the
 	// section while we waited.
-	if sharedCache.Get(cacheKey, &cached) {
+	if cacheFor(bs.client).Get(cacheKey, &cached) {
 		return cached, nil
 	}
 
@@ -282,7 +282,7 @@ func bootstrapSection[T any](ctx context.Context, bs *BootstrapService, cacheKey
 		{"gameweeks", gameweeksCacheTTL, full.Events},
 		{"settings", settingsCacheTTL, full.Settings},
 	} {
-		if err := sharedCache.Set(s.key, s.value, s.ttl); err != nil {
+		if err := cacheFor(bs.client).Set(s.key, s.value, s.ttl); err != nil {
 			return cached, fmt.Errorf("failed to cache %s: %w", s.key, err)
 		}
 	}

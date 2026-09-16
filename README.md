@@ -88,6 +88,49 @@ responses for only 30 seconds to stay close to the source.
 - If you want Redis to be mandatory, set `FPL_CACHE_BACKEND=redis`.
 - If you want to force in-memory caching, use `client.WithMemoryCache()` or set `FPL_CACHE_BACKEND=memory`.
 
+### Cache sharing
+
+Cache entries are shared across callers; this patch does not add URL or user
+namespacing. Existing entity keys and the pre-existing next-gameweek key behavior
+remain unchanged. If different upstreams contain different data, supply separate
+caches or separate Redis prefixes explicitly. Automatic URL isolation from
+issue #49 is intentionally not implemented.
+
+`endpoints.SetSharedCache` / `GetSharedCache` remain supported for legacy
+clients. Memory-mode construction now reuses a process-wide memory store rather
+than clearing entries on each `NewClient`. Legacy options still select a global
+fallback cache, so choosing a different backend can redirect other legacy
+clients. Use `WithCache(store)` or `WithRedisCacheClient(pool, prefix)` when
+client-specific cache selection is required; these do **not** replace the global
+cache and are unaffected by later global replacements. Use one cache-selection
+option per client; when multiple valid options are supplied, the last wins.
+`WithCache` accepts a concurrent JSON cache implementing `client.Cache` (the
+existing cache contract, now available as a public alias). Never pass a typed-nil
+cache implementation.
+
+### Share one Redis connection pool with your application
+
+Create one `*redis.Client` in the application and pass it to
+`client.WithRedisCacheClient(pool, "fpl:sdk")`. Application snapshots can use
+that same pool with keys such as `fpl:precompute:v1:captain-picks`.
+
+The new option:
+
+- does not dial/ping during construction or create a second pool;
+- uses the caller's selected DB, credentials, and pool configuration;
+- leaves the pool owned by the caller (stop all SDK/application users, then
+  close it once);
+- retains the SDK cache adapter's existing five-second operation contexts;
+  shorter application-specific budgets can be applied to the application's
+  own Redis commands. No new cache-failure or cancellation guarantee is implied.
+
+**One shared pool uses one logical DB.** Use key prefixes for SDK/snapshot
+separation. Two logical DBs on the same Redis server require separate clients
+and pools; do not issue `SELECT` to switch DBs on pooled connections.
+
+The new APIs are additive; no SDK release tag or backend dependency is changed
+by this patch. The backend should adopt the published SDK version after merge.
+
 ### Environment Variables
 
 ```bash

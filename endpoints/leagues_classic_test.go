@@ -20,7 +20,7 @@ func newLeagueServer(t *testing.T, handler http.HandlerFunc) *client.Client {
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
-	c, err := client.NewClient(client.WithBaseURL(server.URL), client.WithMemoryCache())
+	c, err := client.NewClient(client.WithBaseURL(server.URL), freshMemoryCache(t))
 	require.NoError(t, err)
 	return c
 }
@@ -86,7 +86,7 @@ func TestGetClassicLeagueStandings(t *testing.T) {
 
 func TestGetH2HLeagueStandings_Errors(t *testing.T) {
 	t.Run("invalid input", func(t *testing.T) {
-		c, err := client.NewClient(client.WithMemoryCache())
+		c, err := client.NewClient(freshMemoryCache(t))
 		require.NoError(t, err)
 
 		standings, err := c.Leagues.GetH2HLeagueStandings(0, 1)
@@ -141,7 +141,7 @@ func TestGetH2HLeagueStandings_Errors(t *testing.T) {
 }
 
 func TestGetTotalPages(t *testing.T) {
-	c, err := client.NewClient(client.WithMemoryCache())
+	c, err := client.NewClient(freshMemoryCache(t))
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, c.Leagues.GetTotalPages(nil))
