@@ -139,23 +139,15 @@ func (bs *BootstrapService) GetCurrentGameWeekWithContext(ctx context.Context) (
 	return 0, fmt.Errorf("failed to find current gameweek")
 }
 
-// nextGameWeekCacheKey returns the cache key for next_gameweek scoped to the API client.
-func (bs *BootstrapService) nextGameWeekCacheKey() string {
-	if u, ok := bs.client.(interface{ BaseURL() string }); ok && u.BaseURL() != "" {
-		return fmt.Sprintf("next_gameweek:%s", u.BaseURL())
-	}
-	return "next_gameweek"
-}
-
 // GetNextGameWeek returns the ID of the next upcoming gameweek (the one marked is_next).
-// Results are cached for 3 minutes by default, scoped to the API client's base URL.
+// Results are cached for 3 minutes by default in the client's selected cache.
 func (bs *BootstrapService) GetNextGameWeek() (int, error) {
 	return bs.GetNextGameWeekWithContext(context.Background())
 }
 
 // GetNextGameWeekWithContext returns the ID of the next upcoming gameweek with context.
 func (bs *BootstrapService) GetNextGameWeekWithContext(ctx context.Context) (int, error) {
-	cacheKey := bs.nextGameWeekCacheKey()
+	const cacheKey = "next_gameweek"
 	var gw int
 	if cacheFor(bs.client).Get(cacheKey, &gw) {
 		return gw, nil

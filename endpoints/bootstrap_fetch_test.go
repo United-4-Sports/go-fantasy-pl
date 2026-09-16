@@ -60,51 +60,59 @@ func TestBootstrapFetchedOnceForAllSections(t *testing.T) {
 	require.Positive(t, nextGW)
 
 	var cachedGW int
-	require.True(t, endpoints.GetSharedCache().Get("next_gameweek:"+server.URL, &cachedGW))
+	require.True(t, endpoints.GetSharedCache().Get("next_gameweek", &cachedGW))
 	require.Equal(t, nextGW, cachedGW)
 
 	require.EqualValues(t, 1, bootstrapFetches.Load(),
 		"all bootstrap sections must be served by a single upstream fetch")
 }
 
-// TestGetNextGameWeek_CacheScopedToClient ensures next_gameweek cache keys
-// are isolated per API client base URL.
-func TestGetNextGameWeek_CacheScopedToClient(t *testing.T) {
-	t.Setenv("FPL_CACHE_BACKEND", "memory")
-	memCache := cache.NewMemoryCache()
-	endpoints.SetSharedCache(memCache)
-
+// Clients sharing a store deliberately share the derived next-gameweek key,
+// just like the underlying gameweeks list. Separate stores remain independent.
+func TestGetNextGameWeek_SharedCache(t *testing.T) {
+	store := cache.NewMemoryCache()
+	var hitsA, hitsB atomic.Int64
 	serverA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		writeTestdata(t, w, "bootstrap-static.json")
+		hitsA.Add(1)
+		if _, err := w.Write([]byte(`{"events":[{"id":7,"is_next":true}]}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	t.Cleanup(serverA.Close)
-
 	serverB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		writeTestdata(t, w, "bootstrap-static.json")
+		hitsB.Add(1)
+		if _, err := w.Write([]byte(`{"events":[{"id":8,"is_next":true}]}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	t.Cleanup(serverB.Close)
 
-	clientA, err := client.NewClient(client.WithBaseURL(serverA.URL))
+	a, err := client.NewClient(client.WithBaseURL(serverA.URL), client.WithCache(store))
 	require.NoError(t, err)
-
-	clientB, err := client.NewClient(client.WithBaseURL(serverB.URL))
+	first, err := a.Bootstrap.GetNextGameWeek()
 	require.NoError(t, err)
+	require.Equal(t, 7, first)
+	var cached int
+	require.True(t, store.Get("next_gameweek", &cached))
+	require.Equal(t, first, cached)
+	require.False(t, store.Get("next_gameweek:"+serverA.URL, &cached))
 
-	gwA, err := clientA.Bootstrap.GetNextGameWeek()
+	// Remove the source list so the second call must reuse the derived key.
+	store.Delete("gameweeks")
+	b, err := client.NewClient(client.WithBaseURL(serverB.URL), client.WithCache(store))
 	require.NoError(t, err)
-
-	gwB, err := clientB.Bootstrap.GetNextGameWeek()
+	second, err := b.Bootstrap.GetNextGameWeekWithContext(context.Background())
 	require.NoError(t, err)
+	require.Equal(t, first, second)
+	require.EqualValues(t, 1, hitsA.Load())
+	require.Zero(t, hitsB.Load())
 
-	require.Equal(t, gwA, gwB)
-
-	var valA, valB int
-	require.True(t, endpoints.GetSharedCache().Get("next_gameweek:"+serverA.URL, &valA))
-	require.True(t, endpoints.GetSharedCache().Get("next_gameweek:"+serverB.URL, &valB))
-	require.Equal(t, gwA, valA)
-	require.Equal(t, gwB, valB)
+	independent, err := client.NewClient(client.WithBaseURL(serverB.URL), client.WithCache(cache.NewMemoryCache()))
+	require.NoError(t, err)
+	other, err := independent.Bootstrap.GetNextGameWeek()
+	require.NoError(t, err)
+	require.Equal(t, 8, other)
+	require.EqualValues(t, 1, hitsB.Load())
 }
 
 func TestBootstrapGameweekHelpersAndContext(t *testing.T) {
