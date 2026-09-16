@@ -1,8 +1,11 @@
 package client
 
 import (
+	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 
 	"github.com/AbdoAnss/go-fantasy-pl/endpoints"
 	"github.com/AbdoAnss/go-fantasy-pl/internal/cache"
@@ -51,7 +54,9 @@ func WithRateLimit(requests int, interval time.Duration) Option {
 // NewClient will return an error if the Redis server is unreachable.
 func WithRedisCache(opts RedisOptions) Option {
 	return func(c *Client) {
+		c.cacheErr = nil
 		c.cacheSet = true
+		c.cache = nil
 		rc, err := cache.NewRedisCache(opts)
 		if err != nil {
 			c.cacheErr = err
@@ -61,10 +66,43 @@ func WithRedisCache(opts RedisOptions) Option {
 	}
 }
 
+// WithCache binds a caller-owned cache to this client without replacing the
+// package-global cache. Callers sharing a store share endpoint entries, so use
+// separate stores or Redis prefixes for different upstream data sources.
+func WithCache(store Cache) Option {
+	return func(c *Client) {
+		c.cacheErr = nil
+		c.cacheSet = true
+		if store == nil {
+			c.cacheErr = fmt.Errorf("cache must not be nil")
+			return
+		}
+		c.cache = store
+	}
+}
+
+// WithRedisCacheClient borrows an existing pool without pinging, replacing the
+// global cache, or taking ownership. The caller configures its DB and timeouts
+// and closes it after all SDK/application users have stopped. Use a dedicated
+// key prefix for SDK entries and another prefix for application snapshots.
+func WithRedisCacheClient(pool *redis.Client, keyPrefix string) Option {
+	return func(c *Client) {
+		c.cacheErr = nil
+		c.cacheSet = true
+		if pool == nil {
+			c.cacheErr = fmt.Errorf("redis client must not be nil")
+			return
+		}
+		c.cache = cache.NewRedisCacheWithClient(pool, keyPrefix)
+	}
+}
+
 // WithMemoryCache forces the SDK to use the in-memory cache backend.
 func WithMemoryCache() Option {
 	return func(c *Client) {
+		c.cacheErr = nil
 		c.cacheSet = true
-		endpoints.SetSharedCache(cache.NewMemoryCache())
+		c.cache = nil
+		endpoints.SetSharedCache(defaultMemoryCache)
 	}
 }

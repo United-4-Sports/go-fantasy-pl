@@ -168,7 +168,7 @@ func newManagerServer(t *testing.T, managerID int) *client.Client {
 	}))
 	t.Cleanup(server.Close)
 
-	c, err := client.NewClient(client.WithBaseURL(server.URL), client.WithMemoryCache())
+	c, err := client.NewClient(client.WithBaseURL(server.URL), freshMemoryCache(t))
 	require.NoError(t, err)
 	return c
 }

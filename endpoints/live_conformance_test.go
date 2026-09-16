@@ -47,7 +47,7 @@ func TestLiveConformance(t *testing.T) {
 	recapture := os.Getenv("FPL_RECAPTURE") == "1"
 
 	c, err := client.NewClient(
-		client.WithMemoryCache(),
+		freshMemoryCache(t),
 		// The walk below makes ~35 requests; keep it comfortably inside the
 		// bucket while staying polite to the undocumented public API.
 		client.WithRateLimit(100, time.Minute),

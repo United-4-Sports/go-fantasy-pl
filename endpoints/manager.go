@@ -44,7 +44,7 @@ func (ms *ManagerService) validateManager(manager *models.Manager) error {
 func (ms *ManagerService) GetManager(id int) (*models.Manager, error) {
 	cacheKey := fmt.Sprintf("manager_%d", id)
 	var manager models.Manager
-	if sharedCache.Get(cacheKey, &manager) {
+	if cacheFor(ms.client).Get(cacheKey, &manager) {
 		return &manager, nil
 	}
 
@@ -76,7 +76,7 @@ func (ms *ManagerService) GetManager(id int) (*models.Manager, error) {
 		return nil, err
 	}
 
-	if err := sharedCache.Set(cacheKey, &manager, managerCacheTTL); err != nil {
+	if err := cacheFor(ms.client).Set(cacheKey, &manager, managerCacheTTL); err != nil {
 		return nil, fmt.Errorf("failed to cache manager data: %w", err)
 	}
 
@@ -87,7 +87,7 @@ func (ms *ManagerService) GetManager(id int) (*models.Manager, error) {
 func (ms *ManagerService) GetCurrentTeam(managerID int) (*models.ManagerTeam, error) {
 	cacheKey := fmt.Sprintf("manager_team_%d", managerID)
 	var team models.ManagerTeam
-	if sharedCache.Get(cacheKey, &team) {
+	if cacheFor(ms.client).Get(cacheKey, &team) {
 		return &team, nil
 	}
 
@@ -111,7 +111,7 @@ func (ms *ManagerService) GetCurrentTeam(managerID int) (*models.ManagerTeam, er
 		return nil, fmt.Errorf("failed to decode manager team: %w", err)
 	}
 
-	if err := sharedCache.Set(cacheKey, &team, managerCacheTTL); err != nil {
+	if err := cacheFor(ms.client).Set(cacheKey, &team, managerCacheTTL); err != nil {
 		return nil, fmt.Errorf("failed to cache manager team: %w", err)
 	}
 	return &team, nil
@@ -121,7 +121,7 @@ func (ms *ManagerService) GetCurrentTeam(managerID int) (*models.ManagerTeam, er
 func (ms *ManagerService) GetManagerHistory(id int) (*models.ManagerHistory, error) {
 	cacheKey := fmt.Sprintf("manager_history_%d", id)
 	var managerHistory models.ManagerHistory
-	if sharedCache.Get(cacheKey, &managerHistory) {
+	if cacheFor(ms.client).Get(cacheKey, &managerHistory) {
 		return &managerHistory, nil
 	}
 
@@ -149,7 +149,7 @@ func (ms *ManagerService) GetManagerHistory(id int) (*models.ManagerHistory, err
 		return nil, fmt.Errorf("failed to decode manager data: %w", err)
 	}
 
-	if err := sharedCache.Set(cacheKey, &managerHistory, managerCacheTTL); err != nil {
+	if err := cacheFor(ms.client).Set(cacheKey, &managerHistory, managerCacheTTL); err != nil {
 		return nil, fmt.Errorf("failed to cache manager history: %w", err)
 	}
 

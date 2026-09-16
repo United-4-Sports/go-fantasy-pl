@@ -37,7 +37,7 @@ func NewFixtureService(client api.Client) *FixtureService {
 func (fs *FixtureService) GetAllFixtures() ([]models.Fixture, error) {
 	const cacheKey = "fixtures"
 	var fixtures []models.Fixture
-	if sharedCache.Get(cacheKey, &fixtures) {
+	if cacheFor(fs.client).Get(cacheKey, &fixtures) {
 		return fixtures, nil
 	}
 
@@ -51,7 +51,7 @@ func (fs *FixtureService) GetAllFixtures() ([]models.Fixture, error) {
 		return nil, fmt.Errorf("failed to decode fixtures: %w", err)
 	}
 
-	if err := sharedCache.Set(cacheKey, fixtures, fixturesCacheTTL); err != nil {
+	if err := cacheFor(fs.client).Set(cacheKey, fixtures, fixturesCacheTTL); err != nil {
 		return nil, fmt.Errorf("failed to cache fixtures: %w", err)
 	}
 
@@ -62,7 +62,7 @@ func (fs *FixtureService) GetAllFixtures() ([]models.Fixture, error) {
 func (fs *FixtureService) GetFixture(id int) (*models.Fixture, error) {
 	cacheKey := fmt.Sprintf("fixture_%d", id)
 	var fixture models.Fixture
-	if sharedCache.Get(cacheKey, &fixture) {
+	if cacheFor(fs.client).Get(cacheKey, &fixture) {
 		return &fixture, nil
 	}
 
@@ -73,7 +73,7 @@ func (fs *FixtureService) GetFixture(id int) (*models.Fixture, error) {
 
 	for _, f := range fixtures {
 		if f.ID == id {
-			if err := sharedCache.Set(cacheKey, &f, fixturesCacheTTL); err != nil {
+			if err := cacheFor(fs.client).Set(cacheKey, &f, fixturesCacheTTL); err != nil {
 				return nil, fmt.Errorf("failed to cache fixture %d: %w", id, err)
 			}
 			return &f, nil

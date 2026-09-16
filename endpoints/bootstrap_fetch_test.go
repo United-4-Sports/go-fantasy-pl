@@ -35,7 +35,7 @@ func TestBootstrapFetchedOnceForAllSections(t *testing.T) {
 
 	c, err := client.NewClient(
 		client.WithBaseURL(server.URL),
-		client.WithMemoryCache(),
+		freshMemoryCache(t),
 	)
 	require.NoError(t, err)
 
@@ -123,7 +123,7 @@ func TestBootstrapGameweekHelpersAndContext(t *testing.T) {
 
 	c, err := client.NewClient(
 		client.WithBaseURL(server.URL),
-		client.WithMemoryCache(),
+		freshMemoryCache(t),
 	)
 	require.NoError(t, err)
 

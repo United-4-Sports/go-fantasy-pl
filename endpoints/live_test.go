@@ -84,7 +84,7 @@ func TestGetEventLiveCaching(t *testing.T) {
 
 	c, err := client.NewClient(
 		client.WithBaseURL(server.URL),
-		client.WithMemoryCache(),
+		freshMemoryCache(t),
 	)
 	require.NoError(t, err)
 
