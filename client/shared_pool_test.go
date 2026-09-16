@@ -19,11 +19,13 @@ import (
 func TestBorrowedRedisPool(t *testing.T) {
 	mr := miniredis.RunT(t)
 	pool := redis.NewClient(&redis.Options{Addr: mr.Addr(), DB: 1, PoolSize: 1, MaxActiveConns: 1})
-	defer pool.Close()
+	t.Cleanup(func() { require.NoError(t, pool.Close()) })
 	var hits atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
-		_, _ = w.Write([]byte(`[{"id":1,"code":101}]`))
+		if _, err := w.Write([]byte(`[{"id":1,"code":101}]`)); err != nil {
+			t.Errorf("write upstream response: %v", err)
+		}
 	}))
 	defer upstream.Close()
 	old := endpoints.GetSharedCache()

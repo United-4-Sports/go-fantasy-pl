@@ -54,6 +54,7 @@ func WithRateLimit(requests int, interval time.Duration) Option {
 // NewClient will return an error if the Redis server is unreachable.
 func WithRedisCache(opts RedisOptions) Option {
 	return func(c *Client) {
+		c.cacheErr = nil
 		c.cacheSet = true
 		c.cache = nil
 		rc, err := cache.NewRedisCache(opts)
@@ -70,6 +71,7 @@ func WithRedisCache(opts RedisOptions) Option {
 // separate stores or Redis prefixes for different upstream data sources.
 func WithCache(store Cache) Option {
 	return func(c *Client) {
+		c.cacheErr = nil
 		c.cacheSet = true
 		if store == nil {
 			c.cacheErr = fmt.Errorf("cache must not be nil")
@@ -85,6 +87,7 @@ func WithCache(store Cache) Option {
 // key prefix for SDK entries and another prefix for application snapshots.
 func WithRedisCacheClient(pool *redis.Client, keyPrefix string) Option {
 	return func(c *Client) {
+		c.cacheErr = nil
 		c.cacheSet = true
 		if pool == nil {
 			c.cacheErr = fmt.Errorf("redis client must not be nil")
@@ -97,6 +100,7 @@ func WithRedisCacheClient(pool *redis.Client, keyPrefix string) Option {
 // WithMemoryCache forces the SDK to use the in-memory cache backend.
 func WithMemoryCache() Option {
 	return func(c *Client) {
+		c.cacheErr = nil
 		c.cacheSet = true
 		c.cache = nil
 		endpoints.SetSharedCache(defaultMemoryCache)
