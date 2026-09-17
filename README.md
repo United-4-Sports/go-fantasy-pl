@@ -88,6 +88,13 @@ responses for only 30 seconds to stay close to the source.
 - If you want Redis to be mandatory, set `FPL_CACHE_BACKEND=redis`.
 - If you want to force in-memory caching, use `client.WithMemoryCache()` or set `FPL_CACHE_BACKEND=memory`.
 
+Cache selection is resolved at construction and kept for the client's
+lifetime; later constructions never redirect an existing client. Clients
+using the same store (in-memory) or Redis DB + key prefix share entries, so
+one client's warming serves another. Current-team picks are cached per
+manager and gameweek (`manager_team_{id}_gw{n}`); old `manager_team_{id}`
+entries expire naturally and are never cleared.
+
 ### Environment Variables
 
 ```bash

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/AbdoAnss/go-fantasy-pl/client"
-	"github.com/AbdoAnss/go-fantasy-pl/endpoints"
 	"github.com/AbdoAnss/go-fantasy-pl/internal/cache"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +18,6 @@ import (
 // section is served from it.
 func TestBootstrapFetchedOnceForAllSections(t *testing.T) {
 	memCache := cache.NewMemoryCache()
-	endpoints.SetSharedCache(memCache)
 
 	var bootstrapFetches atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +33,7 @@ func TestBootstrapFetchedOnceForAllSections(t *testing.T) {
 
 	c, err := client.NewClient(
 		client.WithBaseURL(server.URL),
-		freshMemoryCache(t),
+		client.WithCache(memCache),
 	)
 	require.NoError(t, err)
 
@@ -60,7 +58,7 @@ func TestBootstrapFetchedOnceForAllSections(t *testing.T) {
 	require.Positive(t, nextGW)
 
 	var cachedGW int
-	require.True(t, endpoints.GetSharedCache().Get("next_gameweek", &cachedGW))
+	require.True(t, memCache.Get("next_gameweek", &cachedGW))
 	require.Equal(t, nextGW, cachedGW)
 
 	require.EqualValues(t, 1, bootstrapFetches.Load(),
@@ -117,7 +115,6 @@ func TestGetNextGameWeek_SharedCache(t *testing.T) {
 
 func TestBootstrapGameweekHelpersAndContext(t *testing.T) {
 	memCache := cache.NewMemoryCache()
-	endpoints.SetSharedCache(memCache)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -131,7 +128,7 @@ func TestBootstrapGameweekHelpersAndContext(t *testing.T) {
 
 	c, err := client.NewClient(
 		client.WithBaseURL(server.URL),
-		freshMemoryCache(t),
+		client.WithCache(memCache),
 	)
 	require.NoError(t, err)
 
@@ -166,8 +163,7 @@ func TestBootstrapGameweekHelpersAndContext(t *testing.T) {
 	// Canceled context should return error
 	canceledCtx, cancel := context.WithCancel(ctx)
 	cancel()
-	memCacheCanceled := cache.NewMemoryCache()
-	endpoints.SetSharedCache(memCacheCanceled)
+	memCache.Clear()
 	_, err = c.Bootstrap.GetPlayersWithContext(canceledCtx)
 	require.Error(t, err)
 }

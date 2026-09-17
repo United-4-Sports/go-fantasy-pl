@@ -9,7 +9,6 @@ import (
 
 	"github.com/AbdoAnss/go-fantasy-pl/client"
 	"github.com/AbdoAnss/go-fantasy-pl/endpoints"
-	"github.com/AbdoAnss/go-fantasy-pl/internal/cache"
 	"github.com/AbdoAnss/go-fantasy-pl/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -65,8 +64,6 @@ func TestGetEventLive(t *testing.T) {
 }
 
 func TestGetEventLiveCaching(t *testing.T) {
-	endpoints.SetSharedCache(cache.NewMemoryCache())
-
 	// A counting handler lets us prove the cache actually short-circuits;
 	// serving identical bytes alone cannot distinguish a cached second call
 	// from an uncached one.

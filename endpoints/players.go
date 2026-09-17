@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/AbdoAnss/go-fantasy-pl/api"
+	"github.com/AbdoAnss/go-fantasy-pl/internal/cache"
 	"github.com/AbdoAnss/go-fantasy-pl/models"
 )
 
@@ -53,9 +54,13 @@ func (ps *PlayerService) GetPlayer(id int) (*models.Player, error) {
 // GetPlayerHistory returns detailed historical performance data for a player,
 // including past seasons and current season gameweek-by-gameweek performance.
 func (ps *PlayerService) GetPlayerHistory(id int) (*models.PlayerHistory, error) {
+	return ps.getPlayerHistory(id, cacheFor(ps.client))
+}
+
+func (ps *PlayerService) getPlayerHistory(id int, store cache.Cache) (*models.PlayerHistory, error) {
 	cacheKey := fmt.Sprintf("player_history_%d", id)
 	var cached models.PlayerHistory
-	if cacheFor(ps.client).Get(cacheKey, &cached) {
+	if store.Get(cacheKey, &cached) {
 		return &cached, nil
 	}
 
@@ -87,7 +92,7 @@ func (ps *PlayerService) GetPlayerHistory(id int) (*models.PlayerHistory, error)
 		return nil, fmt.Errorf("history is nil in response for player ID %d", id)
 	}
 
-	if err := cacheFor(ps.client).Set(cacheKey, &history, playersCacheTTL); err != nil {
+	if err := store.Set(cacheKey, &history, playersCacheTTL); err != nil {
 		return nil, fmt.Errorf("failed to cache player history: %w", err)
 	}
 	return &history, nil

@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/AbdoAnss/go-fantasy-pl/client"
-	"github.com/AbdoAnss/go-fantasy-pl/endpoints"
-	"github.com/AbdoAnss/go-fantasy-pl/internal/cache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -143,10 +141,6 @@ func TestGetAllTeamsAsync(t *testing.T) {
 // hermetically against inline payloads.
 func newManagerServer(t *testing.T, managerID int) *client.Client {
 	t.Helper()
-
-	// A fresh cache per test: GetCurrentGameWeek caches the gameweek ID
-	// globally, which would leak across tests with different payloads.
-	endpoints.SetSharedCache(cache.NewMemoryCache())
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

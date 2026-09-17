@@ -30,7 +30,8 @@ type Client struct {
 	rateLimitErr error // final rate option's configuration error
 	cacheErr     error // stores errors from cache configuration to be returned by NewClient
 	cacheSet     bool
-	cache        cache.Cache // explicit cache; nil uses the legacy shared cache
+	cache        cache.Cache   // retained selection; shared storage is independent of selection
+	redisOptions *RedisOptions // deferred owned pool construction
 
 	// Bootstrap provides access to core FPL data like players, teams, and gameweeks.
 	Bootstrap *endpoints.BootstrapService
@@ -81,10 +82,14 @@ func NewClient(opts ...Option) (*Client, error) {
 		return nil, fmt.Errorf("client: rate limit configuration failed: %w", c.rateLimitErr)
 	}
 
+	var err error
 	if !c.cacheSet {
-		if err := configureDefaultCache(); err != nil {
-			return nil, fmt.Errorf("client: cache configuration failed: %w", err)
-		}
+		c.cache, err = configureDefaultCache()
+	} else if c.redisOptions != nil {
+		c.cache, err = cache.NewRedisCache(*c.redisOptions)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("client: cache configuration failed: %w", err)
 	}
 
 	// Bootstrap service
@@ -105,8 +110,10 @@ func NewClient(opts ...Option) (*Client, error) {
 // It is an alias, so existing implementations need no changes.
 type Cache = cache.Cache
 
-// Cache returns this client's explicit cache, or nil when it uses the legacy
-// shared cache. The caller owns explicitly supplied cache resources.
+// Cache returns the cache store selected at construction. SDK clients always
+// retain their selection; the legacy shared cache is independent of it.
+// The caller owns explicitly supplied cache resources (including pools
+// supplied via WithRedisCacheClient).
 func (c *Client) Cache() Cache { return c.cache }
 
 // BaseURL returns the configured base URL for the FPL API.

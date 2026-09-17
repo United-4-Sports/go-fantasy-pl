@@ -42,21 +42,16 @@ func TestCacheOptionOrdering(t *testing.T) {
 	for _, good := range valid {
 		for _, bad := range invalid {
 			t.Run(good.name+" after "+bad.name, func(t *testing.T) {
-				// WithRedisCache creates a pool; close it even when assertions fail.
-				if good.name == "owned Redis" {
-					t.Cleanup(func() {
-						if owned, ok := endpoints.GetSharedCache().(*cache.RedisCache); ok {
-							require.NoError(t, owned.Close())
-						}
-						endpoints.SetSharedCache(old)
-					})
-				}
 				c, err := NewClient(bad.option, good.option)
 				require.NoError(t, err)
 				require.NotNil(t, c)
+				require.Same(t, old, endpoints.GetSharedCache())
 				switch good.name {
-				case "memory", "owned Redis":
-					require.Nil(t, c.Cache())
+				case "memory":
+					require.Same(t, defaultMemoryCache, c.Cache())
+				case "owned Redis":
+					owned := c.Cache().(*cache.RedisCache)
+					t.Cleanup(func() { require.NoError(t, owned.Close()) })
 				case "explicit":
 					require.Same(t, store, c.Cache())
 				case "borrowed Redis":
@@ -64,14 +59,8 @@ func TestCacheOptionOrdering(t *testing.T) {
 				}
 			})
 			t.Run(bad.name+" after "+good.name, func(t *testing.T) {
-				if good.name == "owned Redis" {
-					t.Cleanup(func() {
-						if owned, ok := endpoints.GetSharedCache().(*cache.RedisCache); ok {
-							require.NoError(t, owned.Close())
-						}
-						endpoints.SetSharedCache(old)
-					})
-				}
+				// Deferred pool construction: a failed construction never
+				// opens an owned Redis pool, so no cache cleanup is needed.
 				c, err := NewClient(good.option, bad.option)
 				require.Error(t, err)
 				require.Nil(t, c)

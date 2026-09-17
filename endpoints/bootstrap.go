@@ -20,6 +20,7 @@ const (
 )
 
 var (
+	sharedCacheMu     sync.RWMutex
 	sharedCache       cache.Cache = newSharedMemoryCache()
 	teamsCacheTTL                 = 24 * time.Hour   // Teams rarely change
 	playersCacheTTL               = 10 * time.Minute // Players update more frequently (injuries, etc)
@@ -36,8 +37,11 @@ func newSharedMemoryCache() *cache.MemoryCache {
 	return mc
 }
 
-// SetSharedCache replaces the cache used by all endpoint services.
-// This is used globally by the SDK to ensure consistent caching across services.
+// SetSharedCache replaces the fallback for endpoint clients without an explicit
+// cache. Each operation retains its selected store, including nested helpers.
+// SDK clients retain their construction-time cache and are unaffected by this
+// setter. Replacement does not close the old store; callers must keep it usable
+// until in-flight operations finish.
 func SetSharedCache(c cache.Cache) {
 	if c == nil {
 		c = newSharedMemoryCache()
@@ -45,11 +49,16 @@ func SetSharedCache(c cache.Cache) {
 	if mc, ok := c.(*cache.MemoryCache); ok {
 		mc.StartCleanupTask(5 * time.Minute)
 	}
+	sharedCacheMu.Lock()
 	sharedCache = c
+	sharedCacheMu.Unlock()
 }
 
-// GetSharedCache returns the current shared cache instance.
+// GetSharedCache returns a synchronized snapshot of the legacy fallback store.
+// It does not return or change the cache retained by an SDK client.
 func GetSharedCache() cache.Cache {
+	sharedCacheMu.RLock()
+	defer sharedCacheMu.RUnlock()
 	return sharedCache
 }
 
@@ -92,7 +101,7 @@ func (bs *BootstrapService) GetTeams() ([]models.Team, error) {
 
 // GetTeamsWithContext returns a list of all Premier League teams with context.
 func (bs *BootstrapService) GetTeamsWithContext(ctx context.Context) ([]models.Team, error) {
-	return bootstrapSection(ctx, bs, "teams", func(r *Response) []models.Team { return r.Teams })
+	return bootstrapSection(ctx, bs, cacheFor(bs.client), "teams", func(r *Response) []models.Team { return r.Teams })
 }
 
 // GetPlayers returns a list of all Premier League players (elements).
@@ -103,7 +112,7 @@ func (bs *BootstrapService) GetPlayers() ([]models.Player, error) {
 
 // GetPlayersWithContext returns a list of all Premier League players with context.
 func (bs *BootstrapService) GetPlayersWithContext(ctx context.Context) ([]models.Player, error) {
-	return bootstrapSection(ctx, bs, "players", func(r *Response) []models.Player { return r.Elements })
+	return bootstrapSection(ctx, bs, cacheFor(bs.client), "players", func(r *Response) []models.Player { return r.Elements })
 }
 
 // GetGameWeeks returns a list of all gameweeks (events) for the season.
@@ -114,7 +123,11 @@ func (bs *BootstrapService) GetGameWeeks() ([]models.GameWeek, error) {
 
 // GetGameWeeksWithContext returns a list of all gameweeks (events) with context.
 func (bs *BootstrapService) GetGameWeeksWithContext(ctx context.Context) ([]models.GameWeek, error) {
-	return bootstrapSection(ctx, bs, "gameweeks", func(r *Response) []models.GameWeek { return r.Events })
+	return bs.getGameWeeks(ctx, cacheFor(bs.client))
+}
+
+func (bs *BootstrapService) getGameWeeks(ctx context.Context, store cache.Cache) ([]models.GameWeek, error) {
+	return bootstrapSection(ctx, bs, store, "gameweeks", func(r *Response) []models.GameWeek { return r.Events })
 }
 
 // GetCurrentGameWeek returns the ID of the current active gameweek.
@@ -125,7 +138,11 @@ func (bs *BootstrapService) GetCurrentGameWeek() (int, error) {
 
 // GetCurrentGameWeekWithContext returns the ID of the current active gameweek with context.
 func (bs *BootstrapService) GetCurrentGameWeekWithContext(ctx context.Context) (int, error) {
-	gameweeks, err := bs.GetGameWeeksWithContext(ctx)
+	return bs.getCurrentGameWeek(ctx, cacheFor(bs.client))
+}
+
+func (bs *BootstrapService) getCurrentGameWeek(ctx context.Context, store cache.Cache) (int, error) {
+	gameweeks, err := bs.getGameWeeks(ctx, store)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get gameweeks: %w", err)
 	}
@@ -147,20 +164,21 @@ func (bs *BootstrapService) GetNextGameWeek() (int, error) {
 
 // GetNextGameWeekWithContext returns the ID of the next upcoming gameweek with context.
 func (bs *BootstrapService) GetNextGameWeekWithContext(ctx context.Context) (int, error) {
+	store := cacheFor(bs.client)
 	const cacheKey = "next_gameweek"
 	var gw int
-	if cacheFor(bs.client).Get(cacheKey, &gw) {
+	if store.Get(cacheKey, &gw) {
 		return gw, nil
 	}
 
-	gameweeks, err := bs.GetGameWeeksWithContext(ctx)
+	gameweeks, err := bs.getGameWeeks(ctx, store)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get gameweeks: %w", err)
 	}
 
 	for _, gw := range gameweeks {
 		if gw.IsNext {
-			if err := cacheFor(bs.client).Set(cacheKey, gw.ID, gameweeksCacheTTL); err != nil {
+			if err := store.Set(cacheKey, gw.ID, gameweeksCacheTTL); err != nil {
 				return 0, fmt.Errorf("failed to cache next gameweek: %w", err)
 			}
 			return gw.ID, nil
@@ -223,7 +241,7 @@ func (bs *BootstrapService) GetSettings() (*models.GameSettings, error) {
 
 // GetSettingsWithContext returns the game settings with context.
 func (bs *BootstrapService) GetSettingsWithContext(ctx context.Context) (*models.GameSettings, error) {
-	settings, err := bootstrapSection(ctx, bs, "settings", func(r *Response) models.GameSettings { return r.Settings })
+	settings, err := bootstrapSection(ctx, bs, cacheFor(bs.client), "settings", func(r *Response) models.GameSettings { return r.Settings })
 	if err != nil {
 		return nil, err
 	}
@@ -234,9 +252,9 @@ func (bs *BootstrapService) GetSettingsWithContext(ctx context.Context) (*models
 // On a miss it fetches /bootstrap-static/ at most once under a shared lock
 // and populates every section's cache key with its own TTL, so callers
 // asking for several sections never trigger several downloads.
-func bootstrapSection[T any](ctx context.Context, bs *BootstrapService, cacheKey string, extract func(*Response) T) (T, error) {
+func bootstrapSection[T any](ctx context.Context, bs *BootstrapService, store cache.Cache, cacheKey string, extract func(*Response) T) (T, error) {
 	var cached T
-	if cacheFor(bs.client).Get(cacheKey, &cached) {
+	if store.Get(cacheKey, &cached) {
 		return cached, nil
 	}
 
@@ -245,7 +263,7 @@ func bootstrapSection[T any](ctx context.Context, bs *BootstrapService, cacheKey
 
 	// Re-check under the lock: another goroutine may have populated the
 	// section while we waited.
-	if cacheFor(bs.client).Get(cacheKey, &cached) {
+	if store.Get(cacheKey, &cached) {
 		return cached, nil
 	}
 
@@ -274,7 +292,7 @@ func bootstrapSection[T any](ctx context.Context, bs *BootstrapService, cacheKey
 		{"gameweeks", gameweeksCacheTTL, full.Events},
 		{"settings", settingsCacheTTL, full.Settings},
 	} {
-		if err := cacheFor(bs.client).Set(s.key, s.value, s.ttl); err != nil {
+		if err := store.Set(s.key, s.value, s.ttl); err != nil {
 			return cached, fmt.Errorf("failed to cache %s: %w", s.key, err)
 		}
 	}
