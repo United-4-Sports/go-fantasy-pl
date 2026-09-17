@@ -173,6 +173,13 @@ c, err := client.NewClient(
 )
 ```
 
+### Rate limiting
+
+`WithRateLimit(N, interval)` permits an initial burst of N requests, then sustains N requests per
+interval. Both arguments must be positive or `NewClient` returns an error. `GetContext` cancels queued
+waits via its context without consuming a token; `WithTimeout` bounds only the HTTP request. Limits are
+per client — reuse one long-lived client instead of creating one per request.
+
 ## CI/CD
 
 The GitHub Actions pipeline now covers:
