@@ -7,7 +7,6 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/AbdoAnss/go-fantasy-pl/endpoints"
 	"github.com/AbdoAnss/go-fantasy-pl/internal/cache"
 )
 
@@ -59,29 +58,30 @@ func WithRateLimit(requests int, interval time.Duration) Option {
 	}
 }
 
-// WithRedisCache configures the client to use a Redis-backed distributed cache.
-// This overrides the default cache selection, enabling shared state across
-// multiple instances (e.g., in a horizontally-scaled microservice deployment).
-// NewClient will return an error if the Redis server is unreachable.
+// WithRedisCache configures the client to use its own Redis-backed distributed
+// cache, selected at construction and retained for this client's lifetime.
+// Entries are shared across SDK clients using the same Redis DB and key
+// prefix, even when their pools differ. Other clients and the legacy shared
+// cache are unaffected. NewClient will return an error if the Redis server is
+// unreachable. The pool is opened only if this is the client's final cache
+// option; superseded options never open connections.
 func WithRedisCache(opts RedisOptions) Option {
 	return func(c *Client) {
 		c.cacheErr = nil
 		c.cacheSet = true
 		c.cache = nil
-		rc, err := cache.NewRedisCache(opts)
-		if err != nil {
-			c.cacheErr = err
-			return
-		}
-		endpoints.SetSharedCache(rc)
+		// Open only the final selected pool, after all options are validated.
+		c.redisOptions = &opts
 	}
 }
 
-// WithCache binds a caller-owned cache to this client without replacing the
-// package-global cache. Callers sharing a store share endpoint entries, so use
-// separate stores or Redis prefixes for different upstream data sources.
+// WithCache binds a caller-owned cache to this client, retained for the
+// client's lifetime. Callers sharing a store share endpoint entries, so use
+// separate stores or Redis prefixes for different upstream data sources. The
+// legacy shared cache is unaffected.
 func WithCache(store Cache) Option {
 	return func(c *Client) {
+		c.redisOptions = nil
 		c.cacheErr = nil
 		c.cacheSet = true
 		if store == nil {
@@ -92,12 +92,14 @@ func WithCache(store Cache) Option {
 	}
 }
 
-// WithRedisCacheClient borrows an existing pool without pinging, replacing the
-// global cache, or taking ownership. The caller configures its DB and timeouts
-// and closes it after all SDK/application users have stopped. Use a dedicated
-// key prefix for SDK entries and another prefix for application snapshots.
+// WithRedisCacheClient borrows an existing pool without pinging or taking
+// ownership. The caller configures its DB and timeouts and closes it after all
+// SDK/application users have stopped. Use a dedicated key prefix for SDK
+// entries and another prefix for application snapshots. The selection is
+// retained for the client's lifetime; the legacy shared cache is unaffected.
 func WithRedisCacheClient(pool *redis.Client, keyPrefix string) Option {
 	return func(c *Client) {
+		c.redisOptions = nil
 		c.cacheErr = nil
 		c.cacheSet = true
 		if pool == nil {
@@ -108,12 +110,15 @@ func WithRedisCacheClient(pool *redis.Client, keyPrefix string) Option {
 	}
 }
 
-// WithMemoryCache forces the SDK to use the in-memory cache backend.
+// WithMemoryCache forces the SDK client to use the shared in-memory cache
+// backend and retains that selection for the client's lifetime. Entries are
+// shared across memory-backed SDK clients; the legacy shared cache is
+// unaffected.
 func WithMemoryCache() Option {
 	return func(c *Client) {
+		c.redisOptions = nil
 		c.cacheErr = nil
 		c.cacheSet = true
-		c.cache = nil
-		endpoints.SetSharedCache(defaultMemoryCache)
+		c.cache = defaultMemoryCache
 	}
 }

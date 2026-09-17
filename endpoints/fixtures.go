@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/AbdoAnss/go-fantasy-pl/api"
+	"github.com/AbdoAnss/go-fantasy-pl/internal/cache"
 	"github.com/AbdoAnss/go-fantasy-pl/models"
 )
 
@@ -35,9 +36,13 @@ func NewFixtureService(client api.Client) *FixtureService {
 
 // GetAllFixtures returns a list of all Premier League fixtures for the current season.
 func (fs *FixtureService) GetAllFixtures() ([]models.Fixture, error) {
+	return fs.getAllFixtures(cacheFor(fs.client))
+}
+
+func (fs *FixtureService) getAllFixtures(store cache.Cache) ([]models.Fixture, error) {
 	const cacheKey = "fixtures"
 	var fixtures []models.Fixture
-	if cacheFor(fs.client).Get(cacheKey, &fixtures) {
+	if store.Get(cacheKey, &fixtures) {
 		return fixtures, nil
 	}
 
@@ -51,7 +56,7 @@ func (fs *FixtureService) GetAllFixtures() ([]models.Fixture, error) {
 		return nil, fmt.Errorf("failed to decode fixtures: %w", err)
 	}
 
-	if err := cacheFor(fs.client).Set(cacheKey, fixtures, fixturesCacheTTL); err != nil {
+	if err := store.Set(cacheKey, fixtures, fixturesCacheTTL); err != nil {
 		return nil, fmt.Errorf("failed to cache fixtures: %w", err)
 	}
 
@@ -60,20 +65,21 @@ func (fs *FixtureService) GetAllFixtures() ([]models.Fixture, error) {
 
 // GetFixture returns a single fixture by its unique FPL ID.
 func (fs *FixtureService) GetFixture(id int) (*models.Fixture, error) {
+	store := cacheFor(fs.client)
 	cacheKey := fmt.Sprintf("fixture_%d", id)
 	var fixture models.Fixture
-	if cacheFor(fs.client).Get(cacheKey, &fixture) {
+	if store.Get(cacheKey, &fixture) {
 		return &fixture, nil
 	}
 
-	fixtures, err := fs.GetAllFixtures()
+	fixtures, err := fs.getAllFixtures(store)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, f := range fixtures {
 		if f.ID == id {
-			if err := cacheFor(fs.client).Set(cacheKey, &f, fixturesCacheTTL); err != nil {
+			if err := store.Set(cacheKey, &f, fixturesCacheTTL); err != nil {
 				return nil, fmt.Errorf("failed to cache fixture %d: %w", id, err)
 			}
 			return &f, nil

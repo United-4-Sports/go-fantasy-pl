@@ -72,11 +72,27 @@ func (c *MemoryCache) Get(key string, dest any) bool {
 	}
 
 	if time.Now().After(it.expiration) {
-		go c.Delete(key)
+		c.deleteIfStillExpired(key)
 		return false
 	}
 
 	return json.Unmarshal(it.value, dest) == nil
+}
+
+// deleteIfStillExpired deletes key only if it is still expired, while holding
+// the write lock. Re-reading under the lock prevents deleting a concurrent
+// fresh Set: between the caller's expired read and acquiring the lock, Set may
+// have re-dated the entry, and that fresh entry must win. The check runs
+// synchronously (no goroutine per miss).
+func (c *MemoryCache) deleteIfStillExpired(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	it, exists := c.items[key]
+	if !exists || !time.Now().After(it.expiration) {
+		return
+	}
+	delete(c.items, key)
 }
 
 // Delete removes a key from the cache.

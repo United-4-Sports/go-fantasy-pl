@@ -10,19 +10,15 @@ import (
 	"testing"
 
 	"github.com/AbdoAnss/go-fantasy-pl/client"
-	"github.com/AbdoAnss/go-fantasy-pl/endpoints"
 	"github.com/AbdoAnss/go-fantasy-pl/internal/cache"
 	"github.com/stretchr/testify/require"
 )
 
-// freshMemoryCache gives each mock-upstream test an empty legacy cache.
+// freshMemoryCache isolates mock upstreams with an explicit store.
 // Production WithMemoryCache intentionally reuses entries across clients.
 func freshMemoryCache(t *testing.T) client.Option {
 	t.Helper()
-	return func(c *client.Client) {
-		client.WithMemoryCache()(c)
-		endpoints.GetSharedCache().Clear()
-	}
+	return client.WithCache(cache.NewMemoryCache())
 }
 
 const liveTestEnv = "FPL_LIVE_TEST"
@@ -36,8 +32,6 @@ func skipUnlessLive(t *testing.T) {
 
 func newEndpointTestClient(t *testing.T) (*client.Client, *httptest.Server) {
 	t.Helper()
-
-	endpoints.SetSharedCache(cache.NewMemoryCache())
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -5,8 +5,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
-	"github.com/AbdoAnss/go-fantasy-pl/endpoints"
 	"github.com/AbdoAnss/go-fantasy-pl/internal/cache"
 )
 
@@ -22,53 +22,37 @@ const (
 
 // Reuse memory entries across client construction, just as Redis does.
 // Applications with different upstreams must supply separate explicit caches.
-var defaultMemoryCache = cache.NewMemoryCache()
+// The periodic cleanup task starts with the store, mirroring the endpoints
+// package's shared fallback.
+var defaultMemoryCache = newDefaultMemoryCache()
 
-func configureDefaultCache() error {
+func newDefaultMemoryCache() *cache.MemoryCache {
+	mc := cache.NewMemoryCache()
+	mc.StartCleanupTask(5 * time.Minute)
+	return mc
+}
+
+func configureDefaultCache() (cache.Cache, error) {
 	backend := strings.ToLower(strings.TrimSpace(os.Getenv(cacheBackendEnv)))
-
 	switch backend {
-	case "", "auto":
-		return configureRedisWithFallback()
-	case "redis":
-		return configureRedisStrict()
 	case "memory":
-		endpoints.SetSharedCache(defaultMemoryCache)
-		return nil
+		return defaultMemoryCache, nil
+	case "", "auto", "redis":
+		opts, err := redisOptionsFromEnv()
+		if err != nil {
+			return nil, err
+		}
+		rc, err := cache.NewRedisCache(opts)
+		if err != nil {
+			if backend == "redis" {
+				return nil, err
+			}
+			return defaultMemoryCache, nil
+		}
+		return rc, nil
 	default:
-		return fmt.Errorf("unsupported %s value %q", cacheBackendEnv, backend)
+		return nil, fmt.Errorf("unsupported %s value %q", cacheBackendEnv, backend)
 	}
-}
-
-func configureRedisWithFallback() error {
-	opts, err := redisOptionsFromEnv()
-	if err != nil {
-		return err
-	}
-
-	rc, err := cache.NewRedisCache(cache.RedisOptions(opts))
-	if err != nil {
-		endpoints.SetSharedCache(defaultMemoryCache)
-		return nil
-	}
-
-	endpoints.SetSharedCache(rc)
-	return nil
-}
-
-func configureRedisStrict() error {
-	opts, err := redisOptionsFromEnv()
-	if err != nil {
-		return err
-	}
-
-	rc, err := cache.NewRedisCache(cache.RedisOptions(opts))
-	if err != nil {
-		return err
-	}
-
-	endpoints.SetSharedCache(rc)
-	return nil
 }
 
 func redisOptionsFromEnv() (RedisOptions, error) {

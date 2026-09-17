@@ -58,13 +58,14 @@ func NewLeagueService(client api.Client) *LeagueService {
 // GetClassicLeagueStandings returns the standings for a classic league by its unique ID.
 // The page parameter allows for paginated access to large leagues (50 entries per page).
 func (ls *LeagueService) GetClassicLeagueStandings(id, page int) (*models.ClassicLeague, error) {
+	store := cacheFor(ls.client)
 	// Only cache first few pages to prevent memory bloat
 	useCache := page <= maxPageCache
 
 	if useCache {
 		cacheKey := fmt.Sprintf("classic_league_%d_page_%d", id, page)
 		var league models.ClassicLeague
-		if cacheFor(ls.client).Get(cacheKey, &league) {
+		if store.Get(cacheKey, &league) {
 			return &league, nil
 		}
 	}
@@ -100,7 +101,7 @@ func (ls *LeagueService) GetClassicLeagueStandings(id, page int) (*models.Classi
 
 	if useCache {
 		cacheKey := fmt.Sprintf("classic_league_%d_page_%d", id, page)
-		if err := cacheFor(ls.client).Set(cacheKey, &league, leagueCacheTTL); err != nil {
+		if err := store.Set(cacheKey, &league, leagueCacheTTL); err != nil {
 			return nil, fmt.Errorf("failed to cache league standings: %w", err)
 		}
 	}

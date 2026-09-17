@@ -1,6 +1,7 @@
 package endpoints
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -42,9 +43,10 @@ func (ms *ManagerService) validateManager(manager *models.Manager) error {
 
 // GetManager returns basic information about an FPL manager by their unique entry ID.
 func (ms *ManagerService) GetManager(id int) (*models.Manager, error) {
+	store := cacheFor(ms.client)
 	cacheKey := fmt.Sprintf("manager_%d", id)
 	var manager models.Manager
-	if cacheFor(ms.client).Get(cacheKey, &manager) {
+	if store.Get(cacheKey, &manager) {
 		return &manager, nil
 	}
 
@@ -76,7 +78,7 @@ func (ms *ManagerService) GetManager(id int) (*models.Manager, error) {
 		return nil, err
 	}
 
-	if err := cacheFor(ms.client).Set(cacheKey, &manager, managerCacheTTL); err != nil {
+	if err := store.Set(cacheKey, &manager, managerCacheTTL); err != nil {
 		return nil, fmt.Errorf("failed to cache manager data: %w", err)
 	}
 
@@ -85,15 +87,19 @@ func (ms *ManagerService) GetManager(id int) (*models.Manager, error) {
 
 // GetCurrentTeam returns the current team selection (picks) for a manager.
 func (ms *ManagerService) GetCurrentTeam(managerID int) (*models.ManagerTeam, error) {
-	cacheKey := fmt.Sprintf("manager_team_%d", managerID)
-	var team models.ManagerTeam
-	if cacheFor(ms.client).Get(cacheKey, &team) {
-		return &team, nil
-	}
-
-	currentGameWeekID, err := ms.bootstrapService.GetCurrentGameWeek()
+	store := cacheFor(ms.client)
+	currentGameWeekID, err := ms.bootstrapService.getCurrentGameWeek(context.Background(), store)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current game week: %w", err)
+	}
+
+	// Never fall back to the old manager-only key: fresh picks for an old GW
+	// must not hide rollover. Old keys expire naturally. Detection is still
+	// bounded by the unchanged gameweeks metadata TTL (3 minutes).
+	cacheKey := fmt.Sprintf("manager_team_%d_gw%d", managerID, currentGameWeekID)
+	var team models.ManagerTeam
+	if store.Get(cacheKey, &team) {
+		return &team, nil
 	}
 
 	endpoint := fmt.Sprintf(managerGameWeekPicksEndpoint, managerID, currentGameWeekID)
@@ -111,7 +117,7 @@ func (ms *ManagerService) GetCurrentTeam(managerID int) (*models.ManagerTeam, er
 		return nil, fmt.Errorf("failed to decode manager team: %w", err)
 	}
 
-	if err := cacheFor(ms.client).Set(cacheKey, &team, managerCacheTTL); err != nil {
+	if err := store.Set(cacheKey, &team, managerCacheTTL); err != nil {
 		return nil, fmt.Errorf("failed to cache manager team: %w", err)
 	}
 	return &team, nil
@@ -119,9 +125,10 @@ func (ms *ManagerService) GetCurrentTeam(managerID int) (*models.ManagerTeam, er
 
 // GetManagerHistory returns the season-by-season and gameweek-by-gameweek history for a manager.
 func (ms *ManagerService) GetManagerHistory(id int) (*models.ManagerHistory, error) {
+	store := cacheFor(ms.client)
 	cacheKey := fmt.Sprintf("manager_history_%d", id)
 	var managerHistory models.ManagerHistory
-	if cacheFor(ms.client).Get(cacheKey, &managerHistory) {
+	if store.Get(cacheKey, &managerHistory) {
 		return &managerHistory, nil
 	}
 
@@ -149,7 +156,7 @@ func (ms *ManagerService) GetManagerHistory(id int) (*models.ManagerHistory, err
 		return nil, fmt.Errorf("failed to decode manager data: %w", err)
 	}
 
-	if err := cacheFor(ms.client).Set(cacheKey, &managerHistory, managerCacheTTL); err != nil {
+	if err := store.Set(cacheKey, &managerHistory, managerCacheTTL); err != nil {
 		return nil, fmt.Errorf("failed to cache manager history: %w", err)
 	}
 

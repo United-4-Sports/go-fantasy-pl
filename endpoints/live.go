@@ -52,9 +52,10 @@ func NewLiveService(client api.Client) *LiveService {
 // Note that bonus points are provisional while fixtures are in progress,
 // and upstream CDN caching means data can lag reality by a few minutes.
 func (ls *LiveService) GetEventLive(eventID int) (*models.EventLive, error) {
+	store := cacheFor(ls.client)
 	cacheKey := fmt.Sprintf("event_live_%d", eventID)
 	var live models.EventLive
-	if cacheFor(ls.client).Get(cacheKey, &live) {
+	if store.Get(cacheKey, &live) {
 		return &live, nil
 	}
 
@@ -86,7 +87,7 @@ func (ls *LiveService) GetEventLive(eventID int) (*models.EventLive, error) {
 		return nil, fmt.Errorf("event live data for gameweek %d is missing elements", eventID)
 	}
 
-	if err := cacheFor(ls.client).Set(cacheKey, &live, eventLiveCacheTTL); err != nil {
+	if err := store.Set(cacheKey, &live, eventLiveCacheTTL); err != nil {
 		return nil, fmt.Errorf("failed to cache event live data: %w", err)
 	}
 

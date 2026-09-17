@@ -55,6 +55,7 @@ func (ps *PlayerService) GetPlayerHistoryAsync(ctx context.Context, id int) <-ch
 // GetPlayerHistoriesBatch fetches player histories concurrently for multiple player IDs.
 // Results are sent to the returned channel as they complete.
 func (ps *PlayerService) GetPlayerHistoriesBatch(ctx context.Context, ids []int) <-chan PlayerHistoryResult {
+	store := cacheFor(ps.client)
 	ch := make(chan PlayerHistoryResult, len(ids))
 	var wg sync.WaitGroup
 
@@ -62,7 +63,7 @@ func (ps *PlayerService) GetPlayerHistoriesBatch(ctx context.Context, ids []int)
 		wg.Add(1)
 		go func(playerID int) {
 			defer wg.Done()
-			history, err := ps.GetPlayerHistory(playerID)
+			history, err := ps.getPlayerHistory(playerID, store)
 			select {
 			case ch <- PlayerHistoryResult{PlayerID: playerID, History: history, Err: err}:
 			case <-ctx.Done():
