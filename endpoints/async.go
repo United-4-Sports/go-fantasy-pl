@@ -26,28 +26,29 @@ type PlayerHistoryResult struct {
 	Err      error
 }
 
+// deliverAsync runs op once and delivers exactly one buffered Result,
+// including cancellation errors, before closing the channel. Abandoning the
+// channel never blocks result delivery.
+func deliverAsync[T any](op func() (T, error)) <-chan Result[T] {
+	ch := make(chan Result[T], 1)
+	go func() {
+		defer close(ch)
+		value, err := op()
+		ch <- Result[T]{Value: value, Err: err}
+	}()
+	return ch
+}
+
 // GetAllPlayersAsync fetches all players concurrently and returns a channel
 // that receives a single Result containing all players or an error.
 func (ps *PlayerService) GetAllPlayersAsync(ctx context.Context) <-chan Result[[]models.Player] {
-	ch := make(chan Result[[]models.Player], 1)
-	go func() {
-		defer close(ch)
-		players, err := ps.GetAllPlayersWithContext(ctx)
-		ch <- Result[[]models.Player]{Value: players, Err: err}
-	}()
-	return ch
+	return deliverAsync(func() ([]models.Player, error) { return ps.GetAllPlayersWithContext(ctx) })
 }
 
 // GetPlayerHistoryAsync fetches the history for a single player asynchronously
 // and returns a channel that receives the result.
 func (ps *PlayerService) GetPlayerHistoryAsync(ctx context.Context, id int) <-chan Result[*models.PlayerHistory] {
-	ch := make(chan Result[*models.PlayerHistory], 1)
-	go func() {
-		defer close(ch)
-		history, err := ps.GetPlayerHistoryWithContext(ctx, id)
-		ch <- Result[*models.PlayerHistory]{Value: history, Err: err}
-	}()
-	return ch
+	return deliverAsync(func() (*models.PlayerHistory, error) { return ps.GetPlayerHistoryWithContext(ctx, id) })
 }
 
 // GetPlayerHistoriesBatch fetches player histories concurrently for multiple player IDs.
@@ -81,71 +82,35 @@ func (ps *PlayerService) GetPlayerHistoriesBatch(ctx context.Context, ids []int)
 // GetAllFixturesAsync fetches all fixtures asynchronously and returns a channel
 // that receives a single Result containing all fixtures or an error.
 func (fs *FixtureService) GetAllFixturesAsync(ctx context.Context) <-chan Result[[]models.Fixture] {
-	ch := make(chan Result[[]models.Fixture], 1)
-	go func() {
-		defer close(ch)
-		fixtures, err := fs.GetAllFixturesWithContext(ctx)
-		ch <- Result[[]models.Fixture]{Value: fixtures, Err: err}
-	}()
-	return ch
+	return deliverAsync(func() ([]models.Fixture, error) { return fs.GetAllFixturesWithContext(ctx) })
 }
 
 // GetAllTeamsAsync fetches all teams asynchronously and returns a channel
 // that receives a single Result containing all teams or an error.
 func (ts *TeamService) GetAllTeamsAsync(ctx context.Context) <-chan Result[[]models.Team] {
-	ch := make(chan Result[[]models.Team], 1)
-	go func() {
-		defer close(ch)
-		teams, err := ts.GetAllTeamsWithContext(ctx)
-		ch <- Result[[]models.Team]{Value: teams, Err: err}
-	}()
-	return ch
+	return deliverAsync(func() ([]models.Team, error) { return ts.GetAllTeamsWithContext(ctx) })
 }
 
 // GetManagerAsync fetches a manager's profile asynchronously and returns a
 // channel that receives the result.
 func (ms *ManagerService) GetManagerAsync(ctx context.Context, id int) <-chan Result[*models.Manager] {
-	ch := make(chan Result[*models.Manager], 1)
-	go func() {
-		defer close(ch)
-		manager, err := ms.GetManagerWithContext(ctx, id)
-		ch <- Result[*models.Manager]{Value: manager, Err: err}
-	}()
-	return ch
+	return deliverAsync(func() (*models.Manager, error) { return ms.GetManagerWithContext(ctx, id) })
 }
 
 // GetCurrentTeamAsync fetches a manager's current team selection asynchronously
 // and returns a channel that receives the result.
 func (ms *ManagerService) GetCurrentTeamAsync(ctx context.Context, managerID int) <-chan Result[*models.ManagerTeam] {
-	ch := make(chan Result[*models.ManagerTeam], 1)
-	go func() {
-		defer close(ch)
-		team, err := ms.GetCurrentTeamWithContext(ctx, managerID)
-		ch <- Result[*models.ManagerTeam]{Value: team, Err: err}
-	}()
-	return ch
+	return deliverAsync(func() (*models.ManagerTeam, error) { return ms.GetCurrentTeamWithContext(ctx, managerID) })
 }
 
 // GetEventLiveAsync fetches a gameweek's live points data asynchronously and
 // returns a channel that receives the result.
 func (ls *LiveService) GetEventLiveAsync(ctx context.Context, eventID int) <-chan Result[*models.EventLive] {
-	ch := make(chan Result[*models.EventLive], 1)
-	go func() {
-		defer close(ch)
-		live, err := ls.GetEventLiveWithContext(ctx, eventID)
-		ch <- Result[*models.EventLive]{Value: live, Err: err}
-	}()
-	return ch
+	return deliverAsync(func() (*models.EventLive, error) { return ls.GetEventLiveWithContext(ctx, eventID) })
 }
 
 // GetManagerHistoryAsync fetches a manager's season and gameweek history
 // asynchronously and returns a channel that receives the result.
 func (ms *ManagerService) GetManagerHistoryAsync(ctx context.Context, id int) <-chan Result[*models.ManagerHistory] {
-	ch := make(chan Result[*models.ManagerHistory], 1)
-	go func() {
-		defer close(ch)
-		history, err := ms.GetManagerHistoryWithContext(ctx, id)
-		ch <- Result[*models.ManagerHistory]{Value: history, Err: err}
-	}()
-	return ch
+	return deliverAsync(func() (*models.ManagerHistory, error) { return ms.GetManagerHistoryWithContext(ctx, id) })
 }

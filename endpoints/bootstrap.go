@@ -342,12 +342,12 @@ func bootstrapSection[T any](ctx context.Context, bs *BootstrapService, store ca
 		ttl   time.Duration
 		value any
 	}{
-		{"teams", teamsCacheTTL, raw.Teams},
-		{"players", playersCacheTTL, raw.Elements},
-		{"gameweeks", gameweeksCacheTTL, raw.Events},
-		{"settings", settingsCacheTTL, raw.Settings},
+		{"teams", teamsCacheTTL, sectionValue(raw.Teams)},
+		{"players", playersCacheTTL, sectionValue(raw.Elements)},
+		{"gameweeks", gameweeksCacheTTL, sectionValue(raw.Events)},
+		{"settings", settingsCacheTTL, sectionValue(raw.Settings)},
 	} {
-		value := derefAny(s.value)
+		value := s.value
 		if value == nil {
 			continue // never cache a missing section
 		}
@@ -369,29 +369,11 @@ func deref[T any](v *T) T {
 	return *v
 }
 
-func derefAny(v any) any {
-	switch p := v.(type) {
-	case *[]models.Team:
-		if p == nil {
-			return nil
-		}
-		return *p
-	case *[]models.Player:
-		if p == nil {
-			return nil
-		}
-		return *p
-	case *[]models.GameWeek:
-		if p == nil {
-			return nil
-		}
-		return *p
-	case *models.GameSettings:
-		if p == nil {
-			return nil
-		}
-		return *p
-	default:
-		return v
+// sectionValue dereferences a payload pointer for warming, returning nil when
+// the section is absent so it is never cached as a zero value.
+func sectionValue[T any](p *T) any {
+	if p == nil {
+		return nil
 	}
+	return *p
 }
