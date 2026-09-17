@@ -1,6 +1,7 @@
 package endpoints
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -52,15 +53,26 @@ func NewLiveService(client api.Client) *LiveService {
 // Note that bonus points are provisional while fixtures are in progress,
 // and upstream CDN caching means data can lag reality by a few minutes.
 func (ls *LiveService) GetEventLive(eventID int) (*models.EventLive, error) {
+	return ls.GetEventLiveWithContext(context.Background(), eventID)
+}
+
+// GetEventLiveWithContext returns the live points data for a gameweek with context.
+func (ls *LiveService) GetEventLiveWithContext(ctx context.Context, eventID int) (*models.EventLive, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	store := cacheFor(ls.client)
 	cacheKey := fmt.Sprintf("event_live_%d", eventID)
 	var live models.EventLive
-	if store.Get(cacheKey, &live) {
+	if hit, err := cacheGet(ctx, ls.client, store, cacheKey, &live); err != nil {
+		return nil, err
+	} else if hit {
 		return &live, nil
 	}
 
 	endpoint := fmt.Sprintf(eventLiveEndpoint, eventID)
-	resp, err := ls.client.Get(endpoint)
+	resp, err := ls.client.GetContext(ctx, endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get event live data: %w", err)
 	}
@@ -87,8 +99,8 @@ func (ls *LiveService) GetEventLive(eventID int) (*models.EventLive, error) {
 		return nil, fmt.Errorf("event live data for gameweek %d is missing elements", eventID)
 	}
 
-	if err := store.Set(cacheKey, &live, eventLiveCacheTTL); err != nil {
-		return nil, fmt.Errorf("failed to cache event live data: %w", err)
+	if err := cacheSet(ctx, ls.client, store, cacheKey, &live, eventLiveCacheTTL); err != nil {
+		return nil, err
 	}
 
 	return &live, nil

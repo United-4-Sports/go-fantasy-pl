@@ -1,6 +1,7 @@
 package endpoints
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,12 +34,22 @@ func NewPlayerService(client api.Client, bootstrap *BootstrapService) *PlayerSer
 // GetAllPlayers returns a list of all players in the FPL system.
 // This is a convenience wrapper around BootstrapService.GetPlayers.
 func (ps *PlayerService) GetAllPlayers() ([]models.Player, error) {
-	return ps.bootstrapService.GetPlayers()
+	return ps.GetAllPlayersWithContext(context.Background())
+}
+
+// GetAllPlayersWithContext returns a list of all players with context.
+func (ps *PlayerService) GetAllPlayersWithContext(ctx context.Context) ([]models.Player, error) {
+	return ps.bootstrapService.GetPlayersWithContext(ctx)
 }
 
 // GetPlayer returns a single player by their unique FPL ID.
 func (ps *PlayerService) GetPlayer(id int) (*models.Player, error) {
-	players, err := ps.GetAllPlayers()
+	return ps.GetPlayerWithContext(context.Background(), id)
+}
+
+// GetPlayerWithContext returns a single player by their unique FPL ID with context.
+func (ps *PlayerService) GetPlayerWithContext(ctx context.Context, id int) (*models.Player, error) {
+	players, err := ps.GetAllPlayersWithContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -54,18 +65,29 @@ func (ps *PlayerService) GetPlayer(id int) (*models.Player, error) {
 // GetPlayerHistory returns detailed historical performance data for a player,
 // including past seasons and current season gameweek-by-gameweek performance.
 func (ps *PlayerService) GetPlayerHistory(id int) (*models.PlayerHistory, error) {
-	return ps.getPlayerHistory(id, cacheFor(ps.client))
+	return ps.GetPlayerHistoryWithContext(context.Background(), id)
 }
 
-func (ps *PlayerService) getPlayerHistory(id int, store cache.Cache) (*models.PlayerHistory, error) {
+// GetPlayerHistoryWithContext returns detailed player history data with context.
+func (ps *PlayerService) GetPlayerHistoryWithContext(ctx context.Context, id int) (*models.PlayerHistory, error) {
+	return ps.getPlayerHistory(ctx, id, cacheFor(ps.client))
+}
+
+func (ps *PlayerService) getPlayerHistory(ctx context.Context, id int, store cache.Cache) (*models.PlayerHistory, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	cacheKey := fmt.Sprintf("player_history_%d", id)
 	var cached models.PlayerHistory
-	if store.Get(cacheKey, &cached) {
+	if hit, err := cacheGet(ctx, ps.client, store, cacheKey, &cached); err != nil {
+		return nil, err
+	} else if hit {
 		return &cached, nil
 	}
 
 	endpoint := fmt.Sprintf(playerDetailsEndpoint, id)
-	resp, err := ps.client.Get(endpoint)
+	resp, err := ps.client.GetContext(ctx, endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching player history: %w", err)
 	}
@@ -92,8 +114,8 @@ func (ps *PlayerService) getPlayerHistory(id int, store cache.Cache) (*models.Pl
 		return nil, fmt.Errorf("history is nil in response for player ID %d", id)
 	}
 
-	if err := store.Set(cacheKey, &history, playersCacheTTL); err != nil {
-		return nil, fmt.Errorf("failed to cache player history: %w", err)
+	if err := cacheSet(ctx, ps.client, store, cacheKey, &history, playersCacheTTL); err != nil {
+		return nil, err
 	}
 	return &history, nil
 }

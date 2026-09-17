@@ -3,6 +3,7 @@
 package cache
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -21,6 +22,26 @@ type Cache interface {
 	Delete(key string)
 	// Clear removes all keys from the cache.
 	Clear()
+}
+
+// ContextCache is an optional capability; Cache remains unchanged for legacy
+// implementations. A successful decode returns (true, nil), a missing or expired
+// key returns (false, nil), and read/decode failures return (false, error).
+// Context errors preserve errors.Is identity. Implementations must be concurrency
+// safe. Built-in caches accept nil contexts as context.Background().
+// Legacy boolean Get cannot report read or decode errors.
+// Callers falling back to Cache must check ctx before calling; blocking legacy
+// methods cannot be forcibly cancelled and must not be hidden in goroutines.
+type ContextCache interface {
+	GetContext(ctx context.Context, key string, dest any) (bool, error)
+	SetContext(ctx context.Context, key string, value any, ttl time.Duration) error
+}
+
+func cacheContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
 }
 
 type item struct {
@@ -45,6 +66,16 @@ func NewMemoryCache() *MemoryCache {
 
 // Set serializes the provided value to JSON and stores it with the given TTL.
 func (c *MemoryCache) Set(key string, value any, ttl time.Duration) error {
+	return c.SetContext(context.Background(), key, value, ttl)
+}
+
+// SetContext stores a value unless ctx is cancelled. JSON serialization and mutex
+// acquisition are synchronous; cancellation is checked before and after them.
+func (c *MemoryCache) SetContext(ctx context.Context, key string, value any, ttl time.Duration) error {
+	ctx = cacheContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	data, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("cache: failed to marshal value for key %q: %w", key, err)
@@ -53,6 +84,9 @@ func (c *MemoryCache) Set(key string, value any, ttl time.Duration) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	c.items[key] = item{
 		value:      data,
 		expiration: time.Now().Add(ttl),
@@ -61,22 +95,42 @@ func (c *MemoryCache) Set(key string, value any, ttl time.Duration) error {
 }
 
 // Get retrieves and deserializes the cached value into the destination object.
-// Returns false if the key does not exist or has already expired.
+// Returns false on a miss or error; use GetContext for diagnostic errors.
 func (c *MemoryCache) Get(key string, dest any) bool {
+	hit, _ := c.GetContext(context.Background(), key, dest)
+	return hit
+}
+
+// GetContext distinguishes missing/expired entries from decode failures.
+// Like SetContext, local locking and JSON decoding are synchronous.
+func (c *MemoryCache) GetContext(ctx context.Context, key string, dest any) (bool, error) {
+	ctx = cacheContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	c.mu.RLock()
 	it, exists := c.items[key]
 	c.mu.RUnlock()
-
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	if !exists {
-		return false
+		return false, nil
 	}
 
 	if time.Now().After(it.expiration) {
 		c.deleteIfStillExpired(key)
-		return false
+		return false, ctx.Err()
 	}
 
-	return json.Unmarshal(it.value, dest) == nil
+	err := json.Unmarshal(it.value, dest)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return false, ctxErr
+	}
+	if err != nil {
+		return false, fmt.Errorf("cache: failed to decode key %q: %w", key, err)
+	}
+	return true, nil
 }
 
 // deleteIfStillExpired deletes key only if it is still expired, while holding

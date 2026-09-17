@@ -24,14 +24,15 @@ const (
 // Client is the main SDK client used to interact with the FPL API.
 // It coordinates services, manages rate limiting, and handles HTTP communication.
 type Client struct {
-	httpClient   *http.Client
-	baseURL      string
-	rateLimit    *rateLimiter
-	rateLimitErr error // final rate option's configuration error
-	cacheErr     error // stores errors from cache configuration to be returned by NewClient
-	cacheSet     bool
-	cache        cache.Cache   // retained selection; shared storage is independent of selection
-	redisOptions *RedisOptions // deferred owned pool construction
+	cacheErrorHandler func(operation string, err error)
+	httpClient        *http.Client
+	baseURL           string
+	rateLimit         *rateLimiter
+	rateLimitErr      error // final rate option's configuration error
+	cacheErr          error // stores errors from cache configuration to be returned by NewClient
+	cacheSet          bool
+	cache             cache.Cache   // retained selection; shared storage is independent of selection
+	redisOptions      *RedisOptions // deferred owned pool construction
 
 	// Bootstrap provides access to core FPL data like players, teams, and gameweeks.
 	Bootstrap *endpoints.BootstrapService
@@ -142,7 +143,16 @@ func (e *StatusError) Error() string {
 // response body. It is used by the live conformance harness to validate
 // models against the exact payload the API returned.
 func (c *Client) GetRaw(endpoint string) ([]byte, error) {
-	resp, err := c.Get(endpoint)
+	return c.GetRawContext(context.Background(), endpoint)
+}
+
+// GetRawContext returns the undecoded response body with context bounding both
+// the rate limiter wait and HTTP request. A nil context uses Background.
+func (c *Client) GetRawContext(ctx context.Context, endpoint string) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	resp, err := c.GetContext(ctx, endpoint)
 	if err != nil {
 		return nil, err
 	}
