@@ -24,12 +24,13 @@ const (
 // Client is the main SDK client used to interact with the FPL API.
 // It coordinates services, manages rate limiting, and handles HTTP communication.
 type Client struct {
-	httpClient *http.Client
-	baseURL    string
-	rateLimit  *rateLimiter
-	cacheErr   error // stores errors from cache configuration to be returned by NewClient
-	cacheSet   bool
-	cache      cache.Cache // explicit cache; nil uses the legacy shared cache
+	httpClient   *http.Client
+	baseURL      string
+	rateLimit    *rateLimiter
+	rateLimitErr error // final rate option's configuration error
+	cacheErr     error // stores errors from cache configuration to be returned by NewClient
+	cacheSet     bool
+	cache        cache.Cache // explicit cache; nil uses the legacy shared cache
 
 	// Bootstrap provides access to core FPL data like players, teams, and gameweeks.
 	Bootstrap *endpoints.BootstrapService
@@ -76,6 +77,10 @@ func NewClient(opts ...Option) (*Client, error) {
 		return nil, fmt.Errorf("client: cache configuration failed: %w", c.cacheErr)
 	}
 
+	if c.rateLimitErr != nil {
+		return nil, fmt.Errorf("client: rate limit configuration failed: %w", c.rateLimitErr)
+	}
+
 	if !c.cacheSet {
 		if err := configureDefaultCache(); err != nil {
 			return nil, fmt.Errorf("client: cache configuration failed: %w", err)
@@ -111,13 +116,7 @@ func (c *Client) BaseURL() string {
 
 // Get performs a rate-limited GET request to the specified endpoint relative to the baseURL.
 func (c *Client) Get(endpoint string) (*http.Response, error) {
-	c.rateLimit.Wait()
-	url := c.baseURL + endpoint
-	resp, err := c.httpClient.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	return resp, nil
+	return c.GetContext(context.Background(), endpoint)
 }
 
 // StatusError reports a non-200 response from GetRaw. It is a typed error so
@@ -154,8 +153,12 @@ func (c *Client) GetRaw(endpoint string) ([]byte, error) {
 }
 
 // GetContext performs a rate-limited GET request with a context to the specified endpoint.
+// The context bounds both the limiter wait and HTTP request; WithTimeout only
+// bounds the HTTP request.
 func (c *Client) GetContext(ctx context.Context, endpoint string) (*http.Response, error) {
-	c.rateLimit.Wait()
+	if err := c.rateLimit.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limit wait failed: %w", err)
+	}
 	url := c.baseURL + endpoint
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

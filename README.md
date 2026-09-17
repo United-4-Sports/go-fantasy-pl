@@ -173,6 +173,29 @@ c, err := client.NewClient(
 )
 ```
 
+### Rate limiting and request cancellation
+
+`WithRateLimit(N, interval)` configures a per-client token bucket: an initial
+burst of N requests, then sustained refill at **N / interval**, capped at N
+available tokens. Fractional credit is retained until the bucket is full. The
+default `WithRateLimit(50, time.Minute)` therefore earns one token every 1.2
+seconds, sustaining 50 requests/minute after the initial burst (not a strict
+rolling-window limit). Both arguments must be positive or `NewClient` returns an
+error. The final rate option wins, including correcting an earlier invalid rate
+option; it does not clear unrelated cache configuration errors.
+
+`GetContext(ctx, endpoint)` lets cancellation or a deadline interrupt both the
+rate-limit queue and the HTTP request. A caller cancelled while queued does not
+reserve or consume a token. `Get(endpoint)` uses a background context and can
+wait for rate capacity indefinitely. `WithTimeout` remains the **HTTP timeout**;
+it does not bound time spent waiting for a rate-limit token. Use a caller context
+when the entire `GetContext` operation needs a deadline.
+
+Reuse a long-lived client: limits are **per SDK client**, not a shared
+process/deployment-wide upstream budget. This corrects an older refill bug that
+earned only one token per interval, so outgoing traffic can increase after
+upgrading. Validate the configured aggregate upstream rate before rollout.
+
 ## CI/CD
 
 The GitHub Actions pipeline now covers:

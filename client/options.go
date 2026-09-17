@@ -41,9 +41,20 @@ func WithBaseURL(url string) Option {
 	}
 }
 
-// WithRateLimit configures the client's internal rate limiter.
+// WithRateLimit configures the client's internal per-client rate limiter as a
+// token bucket: an initial burst of `requests` tokens, refilled at `requests`
+// per `interval` (capacity N per interval ⇒ N/interval tokens per second, so
+// `WithRateLimit(50, time.Minute)` sustains 50 requests per minute). The final
+// rate option wins, including clearing an earlier rate-option error; unrelated
+// cache configuration errors are never cleared. requests and interval must be
+// positive; violations are stored and reported by NewClient.
 func WithRateLimit(requests int, interval time.Duration) Option {
 	return func(c *Client) {
+		if requests <= 0 || interval <= 0 {
+			c.rateLimitErr = fmt.Errorf("rate limit requires requests > 0 and interval > 0, got requests=%d interval=%s", requests, interval)
+			return
+		}
+		c.rateLimitErr = nil
 		c.rateLimit = newRateLimiter(requests, interval)
 	}
 }
