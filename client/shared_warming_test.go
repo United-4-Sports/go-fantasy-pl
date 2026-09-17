@@ -19,7 +19,9 @@ func newCountingFixturesServer(t *testing.T) (*httptest.Server, *atomic.Int64) {
 	var hits atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
-		_, _ = fmt.Fprintf(w, `[{"id":1,"code":%d}]`, hits.Load())
+		if _, err := fmt.Fprintf(w, `[{"id":1,"code":%d}]`, hits.Load()); err != nil {
+			t.Errorf("write upstream response: %v", err)
+		}
 	}))
 	t.Cleanup(server.Close)
 	return server, &hits

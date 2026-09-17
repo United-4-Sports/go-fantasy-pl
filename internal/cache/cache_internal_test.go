@@ -53,9 +53,11 @@ func TestMemoryCacheExpiryCleanupKeepsFreshReplacement(t *testing.T) {
 // Concurrent expired readers and fresh writers under -race: expiry cleanup on
 // one key must never delete fresh entries on other keys. Each writer owns a
 // distinct key, so every assertion is deterministic regardless of interleaving.
+// Workers report failures through errCh; only the test goroutine asserts.
 func TestMemoryCacheExpiryCleanupRace(t *testing.T) {
 	c := NewMemoryCache()
 	const workers = 8
+	errCh := make(chan error, workers)
 	var wg sync.WaitGroup
 	start := make(chan struct{})
 	for i := range workers {
@@ -66,25 +68,45 @@ func TestMemoryCacheExpiryCleanupRace(t *testing.T) {
 			if i%2 == 0 {
 				// Expiry churn: write immediately-expired values and read
 				// them back, running the locked cleanup on every miss.
+				key := fmt.Sprintf("expiring_%d", i)
 				for range 100 {
-					_ = c.Set(fmt.Sprintf("expiring_%d", i), i, -time.Nanosecond)
+					if err := c.Set(key, i, -time.Nanosecond); err != nil {
+						errCh <- fmt.Errorf("set expiring key: %w", err)
+						return
+					}
 					var v int
-					require.False(t, c.Get(fmt.Sprintf("expiring_%d", i), &v))
+					if c.Get(key, &v) {
+						errCh <- fmt.Errorf("expired key %s must miss", key)
+						return
+					}
 				}
 			} else {
 				// Fresh long-lived entry: must survive everyone else's cleanup.
 				key := fmt.Sprintf("fresh_%d", i)
-				_ = c.Set(key, i, time.Hour)
+				if err := c.Set(key, i, time.Hour); err != nil {
+					errCh <- fmt.Errorf("set fresh key: %w", err)
+					return
+				}
 				for range 100 {
 					var v int
-					require.True(t, c.Get(key, &v), "fresh entry %s must survive concurrent expiry cleanup", key)
-					require.Equal(t, i, v)
+					if !c.Get(key, &v) {
+						errCh <- fmt.Errorf("fresh entry %s must survive concurrent expiry cleanup", key)
+						return
+					}
+					if v != i {
+						errCh <- fmt.Errorf("fresh entry %s corrupted: got %d want %d", key, v, i)
+						return
+					}
 				}
 			}
 		}()
 	}
 	close(start)
 	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Error(err)
+	}
 	for i := 1; i < workers; i += 2 {
 		var v int
 		require.True(t, c.Get(fmt.Sprintf("fresh_%d", i), &v))
