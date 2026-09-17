@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 
 	"github.com/AbdoAnss/go-fantasy-pl/api"
 	"github.com/AbdoAnss/go-fantasy-pl/internal/cache"
@@ -52,7 +53,9 @@ func (fs *FixtureService) getAllFixtures(ctx context.Context, store cache.Cache)
 	}
 	const cacheKey = "fixtures"
 	var fixtures []models.Fixture
-	if store.Get(cacheKey, &fixtures) {
+	if hit, err := cacheGet(ctx, fs.client, store, cacheKey, &fixtures); err != nil {
+		return nil, err
+	} else if hit {
 		return fixtures, nil
 	}
 
@@ -62,12 +65,23 @@ func (fs *FixtureService) getAllFixtures(ctx context.Context, store cache.Cache)
 	}
 	defer resp.Body.Close()
 
-	if err := json.NewDecoder(resp.Body).Decode(&fixtures); err != nil {
-		return nil, fmt.Errorf("failed to decode fixtures: %w", err)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code fetching fixtures: %d", resp.StatusCode)
 	}
 
-	if err := store.Set(cacheKey, fixtures, fixturesCacheTTL); err != nil {
-		return nil, fmt.Errorf("failed to cache fixtures: %w", err)
+	// A JSON null body is not an empty fixture list; only a real array is
+	// accepted (a legitimate empty season decodes as []).
+	var payload *[]models.Fixture
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("failed to decode fixtures: %w", err)
+	}
+	if payload == nil {
+		return nil, fmt.Errorf("fixtures response is missing fixture data")
+	}
+	fixtures = *payload
+
+	if err := cacheSet(ctx, fs.client, store, cacheKey, fixtures, fixturesCacheTTL); err != nil {
+		return nil, err
 	}
 
 	return fixtures, nil
@@ -87,7 +101,9 @@ func (fs *FixtureService) GetFixtureWithContext(ctx context.Context, id int) (*m
 	store := cacheFor(fs.client)
 	cacheKey := fmt.Sprintf("fixture_%d", id)
 	var fixture models.Fixture
-	if store.Get(cacheKey, &fixture) {
+	if hit, err := cacheGet(ctx, fs.client, store, cacheKey, &fixture); err != nil {
+		return nil, err
+	} else if hit {
 		return &fixture, nil
 	}
 
@@ -98,8 +114,8 @@ func (fs *FixtureService) GetFixtureWithContext(ctx context.Context, id int) (*m
 
 	for _, f := range fixtures {
 		if f.ID == id {
-			if err := store.Set(cacheKey, &f, fixturesCacheTTL); err != nil {
-				return nil, fmt.Errorf("failed to cache fixture %d: %w", id, err)
+			if err := cacheSet(ctx, fs.client, store, cacheKey, &f, fixturesCacheTTL); err != nil {
+				return nil, err
 			}
 			return &f, nil
 		}

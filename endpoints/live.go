@@ -65,7 +65,9 @@ func (ls *LiveService) GetEventLiveWithContext(ctx context.Context, eventID int)
 	store := cacheFor(ls.client)
 	cacheKey := fmt.Sprintf("event_live_%d", eventID)
 	var live models.EventLive
-	if store.Get(cacheKey, &live) {
+	if hit, err := cacheGet(ctx, ls.client, store, cacheKey, &live); err != nil {
+		return nil, err
+	} else if hit {
 		return &live, nil
 	}
 
@@ -97,8 +99,8 @@ func (ls *LiveService) GetEventLiveWithContext(ctx context.Context, eventID int)
 		return nil, fmt.Errorf("event live data for gameweek %d is missing elements", eventID)
 	}
 
-	if err := store.Set(cacheKey, &live, eventLiveCacheTTL); err != nil {
-		return nil, fmt.Errorf("failed to cache event live data: %w", err)
+	if err := cacheSet(ctx, ls.client, store, cacheKey, &live, eventLiveCacheTTL); err != nil {
+		return nil, err
 	}
 
 	return &live, nil

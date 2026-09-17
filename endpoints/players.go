@@ -80,7 +80,9 @@ func (ps *PlayerService) getPlayerHistory(ctx context.Context, id int, store cac
 	}
 	cacheKey := fmt.Sprintf("player_history_%d", id)
 	var cached models.PlayerHistory
-	if store.Get(cacheKey, &cached) {
+	if hit, err := cacheGet(ctx, ps.client, store, cacheKey, &cached); err != nil {
+		return nil, err
+	} else if hit {
 		return &cached, nil
 	}
 
@@ -112,8 +114,8 @@ func (ps *PlayerService) getPlayerHistory(ctx context.Context, id int, store cac
 		return nil, fmt.Errorf("history is nil in response for player ID %d", id)
 	}
 
-	if err := store.Set(cacheKey, &history, playersCacheTTL); err != nil {
-		return nil, fmt.Errorf("failed to cache player history: %w", err)
+	if err := cacheSet(ctx, ps.client, store, cacheKey, &history, playersCacheTTL); err != nil {
+		return nil, err
 	}
 	return &history, nil
 }

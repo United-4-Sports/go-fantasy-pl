@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sort"
 	"sync"
 	"time"
@@ -101,7 +102,8 @@ func (bs *BootstrapService) GetTeams() ([]models.Team, error) {
 
 // GetTeamsWithContext returns a list of all Premier League teams with context.
 func (bs *BootstrapService) GetTeamsWithContext(ctx context.Context) ([]models.Team, error) {
-	return bootstrapSection(ctx, bs, cacheFor(bs.client), "teams", func(r *Response) []models.Team { return r.Teams })
+	return bootstrapSection(ctx, bs, cacheFor(bs.client), "teams", func(r *Response) []models.Team { return r.Teams },
+		func(p *bootstrapPayload) bool { return p.Teams != nil })
 }
 
 // GetPlayers returns a list of all Premier League players (elements).
@@ -112,7 +114,8 @@ func (bs *BootstrapService) GetPlayers() ([]models.Player, error) {
 
 // GetPlayersWithContext returns a list of all Premier League players with context.
 func (bs *BootstrapService) GetPlayersWithContext(ctx context.Context) ([]models.Player, error) {
-	return bootstrapSection(ctx, bs, cacheFor(bs.client), "players", func(r *Response) []models.Player { return r.Elements })
+	return bootstrapSection(ctx, bs, cacheFor(bs.client), "players", func(r *Response) []models.Player { return r.Elements },
+		func(p *bootstrapPayload) bool { return p.Elements != nil })
 }
 
 // GetGameWeeks returns a list of all gameweeks (events) for the season.
@@ -127,7 +130,8 @@ func (bs *BootstrapService) GetGameWeeksWithContext(ctx context.Context) ([]mode
 }
 
 func (bs *BootstrapService) getGameWeeks(ctx context.Context, store cache.Cache) ([]models.GameWeek, error) {
-	return bootstrapSection(ctx, bs, store, "gameweeks", func(r *Response) []models.GameWeek { return r.Events })
+	return bootstrapSection(ctx, bs, store, "gameweeks", func(r *Response) []models.GameWeek { return r.Events },
+		func(p *bootstrapPayload) bool { return p.Events != nil })
 }
 
 // GetCurrentGameWeek returns the ID of the current active gameweek.
@@ -171,7 +175,9 @@ func (bs *BootstrapService) GetNextGameWeekWithContext(ctx context.Context) (int
 	store := cacheFor(bs.client)
 	const cacheKey = "next_gameweek"
 	var gw int
-	if store.Get(cacheKey, &gw) {
+	if hit, err := cacheGet(ctx, bs.client, store, cacheKey, &gw); err != nil {
+		return 0, err
+	} else if hit {
 		return gw, nil
 	}
 
@@ -182,8 +188,8 @@ func (bs *BootstrapService) GetNextGameWeekWithContext(ctx context.Context) (int
 
 	for _, gw := range gameweeks {
 		if gw.IsNext {
-			if err := store.Set(cacheKey, gw.ID, gameweeksCacheTTL); err != nil {
-				return 0, fmt.Errorf("failed to cache next gameweek: %w", err)
+			if err := cacheSet(ctx, bs.client, store, cacheKey, gw.ID, gameweeksCacheTTL); err != nil {
+				return 0, err
 			}
 			return gw.ID, nil
 		}
@@ -249,37 +255,56 @@ func (bs *BootstrapService) GetSettings() (*models.GameSettings, error) {
 
 // GetSettingsWithContext returns the game settings with context.
 func (bs *BootstrapService) GetSettingsWithContext(ctx context.Context) (*models.GameSettings, error) {
-	settings, err := bootstrapSection(ctx, bs, cacheFor(bs.client), "settings", func(r *Response) models.GameSettings { return r.Settings })
+	settings, err := bootstrapSection(ctx, bs, cacheFor(bs.client), "settings", func(r *Response) models.GameSettings { return r.Settings },
+		func(p *bootstrapPayload) bool { return p.Settings != nil })
 	if err != nil {
 		return nil, err
 	}
 	return &settings, nil
 }
 
+// bootstrapPayload mirrors /bootstrap-static/ with pointer sections so a
+// missing key is distinguishable from a legitimate empty array.
+type bootstrapPayload struct {
+	Teams    *[]models.Team       `json:"teams"`
+	Elements *[]models.Player     `json:"elements"`
+	Events   *[]models.GameWeek   `json:"events"`
+	Settings *models.GameSettings `json:"game_settings"`
+}
+
 // bootstrapSection returns one cached section of the bootstrap response.
 // On a miss it fetches /bootstrap-static/ at most once under a shared lock
 // and populates every section's cache key with its own TTL, so callers
 // asking for several sections never trigger several downloads.
-func bootstrapSection[T any](ctx context.Context, bs *BootstrapService, store cache.Cache, cacheKey string, extract func(*Response) T) (T, error) {
+func bootstrapSection[T any](ctx context.Context, bs *BootstrapService, store cache.Cache, cacheKey string, extract func(*Response) T, present func(*bootstrapPayload) bool) (T, error) {
 	ctx = normalizeContext(ctx)
 	var cached T
-	if err := ctx.Err(); err != nil {
+	if hit, err := cacheGet(ctx, bs.client, store, cacheKey, &cached); err != nil {
 		return cached, err
-	}
-	if store.Get(cacheKey, &cached) {
+	} else if hit {
 		return cached, nil
 	}
 
-	bootstrapMu.Lock()
+	// Cancellable gate: a waiter whose context ends leaves the queue without
+	// disturbing the owner's fetch; the gate is process-wide by design so
+	// concurrent section misses share one HTTP call.
+	acquired := make(chan struct{})
+	go func() {
+		bootstrapMu.Lock()
+		close(acquired)
+	}()
+	select {
+	case <-acquired:
+	case <-ctx.Done():
+		return cached, ctx.Err()
+	}
 	defer bootstrapMu.Unlock()
 
-	if err := ctx.Err(); err != nil {
-		return cached, err
-	}
-
-	// Re-check under the lock: another goroutine may have populated the
+	// Re-check under the gate: another goroutine may have populated the
 	// section while we waited.
-	if store.Get(cacheKey, &cached) {
+	if hit, err := cacheGet(ctx, bs.client, store, cacheKey, &cached); err != nil {
+		return cached, err
+	} else if hit {
 		return cached, nil
 	}
 
@@ -289,24 +314,84 @@ func bootstrapSection[T any](ctx context.Context, bs *BootstrapService, store ca
 	}
 	defer resp.Body.Close()
 
-	var full Response
-	if err := json.NewDecoder(resp.Body).Decode(&full); err != nil {
+	if resp.StatusCode != http.StatusOK {
+		return cached, fmt.Errorf("unexpected status code fetching bootstrap data: %d", resp.StatusCode)
+	}
+
+	// Pointer decoding reveals which sections the payload actually contains:
+	// missing required payloads are rejected, while legitimate empty arrays
+	// (e.g. a preseason events list) remain valid.
+	raw := bootstrapPayload{}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return cached, fmt.Errorf("failed to decode bootstrap data: %w", err)
 	}
+	if present != nil && !present(&raw) {
+		return cached, fmt.Errorf("bootstrap response is missing required %s data", cacheKey)
+	}
+
+	full := Response{
+		Teams:    deref(raw.Teams),
+		Elements: deref(raw.Elements),
+		Events:   deref(raw.Events),
+		Settings: deref(raw.Settings),
+	}
+	value := extract(&full)
 
 	for _, s := range []struct {
 		key   string
 		ttl   time.Duration
 		value any
 	}{
-		{"teams", teamsCacheTTL, full.Teams},
-		{"players", playersCacheTTL, full.Elements},
-		{"gameweeks", gameweeksCacheTTL, full.Events},
-		{"settings", settingsCacheTTL, full.Settings},
+		{"teams", teamsCacheTTL, raw.Teams},
+		{"players", playersCacheTTL, raw.Elements},
+		{"gameweeks", gameweeksCacheTTL, raw.Events},
+		{"settings", settingsCacheTTL, raw.Settings},
 	} {
-		if err := store.Set(s.key, s.value, s.ttl); err != nil {
-			return cached, fmt.Errorf("failed to cache %s: %w", s.key, err)
+		value := derefAny(s.value)
+		if value == nil {
+			continue // never cache a missing section
+		}
+		if err := cacheSet(ctx, bs.client, store, s.key, value, s.ttl); err != nil {
+			// Best-effort warming: one failed section never discards the
+			// decoded requested data, and the remaining writes proceed.
+			// Cancellation/deadline errors are the only fatal ones.
+			return cached, err
 		}
 	}
-	return extract(&full), nil
+	return value, nil
+}
+
+func deref[T any](v *T) T {
+	if v == nil {
+		var zero T
+		return zero
+	}
+	return *v
+}
+
+func derefAny(v any) any {
+	switch p := v.(type) {
+	case *[]models.Team:
+		if p == nil {
+			return nil
+		}
+		return *p
+	case *[]models.Player:
+		if p == nil {
+			return nil
+		}
+		return *p
+	case *[]models.GameWeek:
+		if p == nil {
+			return nil
+		}
+		return *p
+	case *models.GameSettings:
+		if p == nil {
+			return nil
+		}
+		return *p
+	default:
+		return v
+	}
 }

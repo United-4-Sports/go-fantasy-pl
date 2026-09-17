@@ -75,7 +75,9 @@ func (ls *LeagueService) GetClassicLeagueStandingsWithContext(ctx context.Contex
 	if useCache {
 		cacheKey := fmt.Sprintf("classic_league_%d_page_%d", id, page)
 		var league models.ClassicLeague
-		if store.Get(cacheKey, &league) {
+		if hit, err := cacheGet(ctx, ls.client, store, cacheKey, &league); err != nil {
+			return nil, err
+		} else if hit {
 			return &league, nil
 		}
 	}
@@ -111,8 +113,8 @@ func (ls *LeagueService) GetClassicLeagueStandingsWithContext(ctx context.Contex
 
 	if useCache {
 		cacheKey := fmt.Sprintf("classic_league_%d_page_%d", id, page)
-		if err := store.Set(cacheKey, &league, leagueCacheTTL); err != nil {
-			return nil, fmt.Errorf("failed to cache league standings: %w", err)
+		if err := cacheSet(ctx, ls.client, store, cacheKey, &league, leagueCacheTTL); err != nil {
+			return nil, err
 		}
 	}
 
