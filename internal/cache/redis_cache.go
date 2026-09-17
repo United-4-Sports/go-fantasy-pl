@@ -3,7 +3,9 @@ package cache
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -37,23 +39,54 @@ func NewRedisCache(opts RedisOptions) (*RedisCache, error) {
 	}
 
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     opts.Addr,
-		Password: opts.Password,
-		DB:       opts.DB,
+		Addr:                  opts.Addr,
+		Password:              opts.Password,
+		DB:                    opts.DB,
+		ContextTimeoutEnabled: true,
+		MaxRetries:            -1, // No automatic retries for cache operations.
+		DialTimeout:           redisOperationTimeout,
+		ReadTimeout:           redisOperationTimeout,
+		WriteTimeout:          redisOperationTimeout,
+		PoolTimeout:           redisOperationTimeout,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := rdb.Ping(ctx).Err(); err != nil {
-		return nil, fmt.Errorf("redis: failed to connect to %s: %w", opts.Addr, err)
+		_ = rdb.Close() // This newly allocated pool cannot be returned to the caller.
+		return nil, fmt.Errorf("redis: failed to connect to %s: %w", opts.Addr, redisContextError(ctx, err))
 	}
 
 	return &RedisCache{client: rdb, prefix: opts.KeyPrefix}, nil
 }
 
+const redisOperationTimeout = 5 * time.Second
+
+// redisContextError also handles the race where the socket deadline fires before
+// the context timer goroutine records Err(). Preserve both diagnostic identities.
+func redisContextError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return errors.Join(ctxErr, err)
+	}
+	var timeout net.Error
+	if errors.As(err, &timeout) && timeout.Timeout() {
+		if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+			return errors.Join(context.DeadlineExceeded, err)
+		}
+	}
+	return err
+}
+
 // NewRedisCacheWithClient creates a RedisCache using an existing *redis.Client.
-// This is useful for advanced configurations or when using Redis mocks like miniredis.
+// Options are never mutated. For deadline-bounded I/O, configure the client with
+// ContextTimeoutEnabled: true, MaxRetries: -1 (disables retries), and finite
+// DialTimeout, ReadTimeout, WriteTimeout and PoolTimeout (at most five seconds).
+// Do not disable socket deadlines with ReadTimeout/WriteTimeout: -2; custom
+// dialers/hooks must also honor contexts. Context cancellation without a deadline
+// may not interrupt an in-flight socket call immediately; the five-second child
+// deadline remains the ceiling. Misconfigured borrowed clients cannot guarantee
+// that ceiling. Local JSON encoding/decoding is synchronous, not interruptible.
 func NewRedisCacheWithClient(client *redis.Client, keyPrefix string) *RedisCache {
 	return &RedisCache{client: client, prefix: keyPrefix}
 }
@@ -67,32 +100,66 @@ func (r *RedisCache) prefixedKey(key string) string {
 
 // Set serializes the value to JSON and stores it in Redis with the provided TTL.
 func (r *RedisCache) Set(key string, value any, ttl time.Duration) error {
+	return r.SetContext(context.Background(), key, value, ttl)
+}
+
+// SetContext stores JSON with a five-second child deadline; an earlier caller
+// deadline wins. Already-cancelled contexts cause no serialization or Redis work.
+func (r *RedisCache) SetContext(ctx context.Context, key string, value any, ttl time.Duration) error {
+	ctx = cacheContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, redisOperationTimeout)
+	defer cancel()
 	data, err := json.Marshal(value)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
 	if err != nil {
 		return fmt.Errorf("redis cache: failed to marshal value for key %q: %w", key, err)
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := r.client.Set(ctx, r.prefixedKey(key), data, ttl).Err(); err != nil {
+	if err := redisContextError(ctx, r.client.Set(ctx, r.prefixedKey(key), data, ttl).Err()); err != nil {
 		return fmt.Errorf("redis cache: failed to set key %q: %w", key, err)
 	}
 	return nil
 }
 
 // Get retrieves a value from Redis and unmarshals it into the destination object.
-// Returns false if the key is missing, expired, or data is corrupted.
+// Returns false on a miss or error; use GetContext for diagnostic errors.
 func (r *RedisCache) Get(key string, dest any) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	hit, _ := r.GetContext(context.Background(), key, dest)
+	return hit
+}
 
-	data, err := r.client.Get(ctx, r.prefixedKey(key)).Bytes()
-	if err != nil {
-		return false
+// GetContext distinguishes misses from transport/decode errors and bounds Redis
+// I/O by the earlier of the caller deadline and the five-second operation ceiling.
+func (r *RedisCache) GetContext(ctx context.Context, key string, dest any) (bool, error) {
+	ctx = cacheContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return false, err
 	}
-
-	return json.Unmarshal(data, dest) == nil
+	ctx, cancel := context.WithTimeout(ctx, redisOperationTimeout)
+	defer cancel()
+	data, err := r.client.Get(ctx, r.prefixedKey(key)).Bytes()
+	err = redisContextError(ctx, err)
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false, fmt.Errorf("redis cache: failed to get key %q: %w", key, err)
+	}
+	if errors.Is(err, redis.Nil) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("redis cache: failed to get key %q: %w", key, err)
+	}
+	err = json.Unmarshal(data, dest)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return false, ctxErr
+	}
+	if err != nil {
+		return false, fmt.Errorf("redis cache: failed to decode key %q: %w", key, err)
+	}
+	return true, nil
 }
 
 // Delete removes a specific key from Redis.
