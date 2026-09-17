@@ -23,7 +23,7 @@ func fixedRateLimiter(capacity int, interval time.Duration) *rateLimiter {
 func TestRateLimiterRefill(t *testing.T) {
 	r := fixedRateLimiter(3, 10*time.Nanosecond)
 	start := r.lastRefill
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		require.NoError(t, r.Wait(context.Background()))
 	}
 	require.Zero(t, r.tokens, "initial burst must be exactly capacity")
@@ -55,8 +55,8 @@ func TestRateLimiterSustainedRate(t *testing.T) {
 	r := fixedRateLimiter(50, time.Minute)
 	now := r.lastRefill
 	r.clock = func() time.Time { return now }
-	for round := 0; round < 5; round++ {
-		for i := 0; i < 50; i++ {
+	for range 5 {
+		for range 50 {
 			require.NoError(t, r.Wait(context.Background()))
 		}
 		require.Zero(t, r.tokens)
@@ -137,7 +137,7 @@ func TestRateLimiterConcurrentBudget(t *testing.T) {
 		outcomes := make(chan bool, 64)
 		r.waitHook = func() { outcomes <- false }
 		var wg sync.WaitGroup
-		for i := 0; i < 64; i++ {
+		for range 64 {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -150,7 +150,7 @@ func TestRateLimiterConcurrentBudget(t *testing.T) {
 			}()
 		}
 		admitted := 0
-		for i := 0; i < 64; i++ {
+		for range 64 {
 			select {
 			case ok := <-outcomes:
 				if ok {
