@@ -54,8 +54,12 @@ func NewRedisCache(opts RedisOptions) (*RedisCache, error) {
 	defer cancel()
 
 	if err := rdb.Ping(ctx).Err(); err != nil {
-		_ = rdb.Close() // This newly allocated pool cannot be returned to the caller.
-		return nil, fmt.Errorf("redis: failed to connect to %s: %w", opts.Addr, redisContextError(ctx, err))
+		// This newly allocated pool cannot be returned to the caller; join
+		// the close result so a failed cleanup stays diagnosable.
+		return nil, errors.Join(
+			fmt.Errorf("redis: failed to connect to %s: %w", opts.Addr, redisContextError(ctx, err)),
+			rdb.Close(),
+		)
 	}
 
 	return &RedisCache{client: rdb, prefix: opts.KeyPrefix}, nil

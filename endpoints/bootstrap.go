@@ -82,10 +82,13 @@ type BootstrapService struct {
 	client api.Client
 }
 
-// bootstrapMu serializes bootstrap fetches so concurrent section misses
-// (e.g. players and gameweeks expiring together) share one HTTP call
-// instead of stampeding the endpoint.
-var bootstrapMu sync.Mutex
+// bootstrapGate serializes bootstrap fetches so concurrent section misses
+// (e.g. players and gameweeks expiring together) share one HTTP call instead
+// of stampeding the endpoint. The buffered channel doubles as a cancellable
+// gate: acquiring selects on send, releasing receives, and a cancelled waiter
+// never acquires — so cancellation cannot strand the gate for later callers.
+// The gate is process-wide by design.
+var bootstrapGate = make(chan struct{}, 1)
 
 // NewBootstrapService creates a new instance of the BootstrapService.
 func NewBootstrapService(client api.Client) *BootstrapService {
@@ -285,20 +288,16 @@ func bootstrapSection[T any](ctx context.Context, bs *BootstrapService, store ca
 		return cached, nil
 	}
 
-	// Cancellable gate: a waiter whose context ends leaves the queue without
-	// disturbing the owner's fetch; the gate is process-wide by design so
-	// concurrent section misses share one HTTP call.
-	acquired := make(chan struct{})
-	go func() {
-		bootstrapMu.Lock()
-		close(acquired)
-	}()
+	// Cancellable gate: a cancelled waiter leaves the queue without
+	// disturbing the owner's fetch. The slot is released only after a
+	// successful acquisition, so cancellation can never strand the gate
+	// (the previous goroutine+mutex shape deadlocked exactly there).
 	select {
-	case <-acquired:
+	case bootstrapGate <- struct{}{}:
+		defer func() { <-bootstrapGate }()
 	case <-ctx.Done():
 		return cached, ctx.Err()
 	}
-	defer bootstrapMu.Unlock()
 
 	// Re-check under the gate: another goroutine may have populated the
 	// section while we waited.
