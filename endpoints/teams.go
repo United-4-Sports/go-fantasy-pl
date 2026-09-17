@@ -1,6 +1,7 @@
 package endpoints
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/AbdoAnss/go-fantasy-pl/api"
@@ -26,12 +27,22 @@ func NewTeamService(client api.Client, bootstrap *BootstrapService) *TeamService
 // GetAllTeams returns a list of all Premier League teams participating in the FPL season.
 // This is a convenience wrapper around BootstrapService.GetTeams.
 func (ts *TeamService) GetAllTeams() ([]models.Team, error) {
-	return ts.bootstrapService.GetTeams()
+	return ts.GetAllTeamsWithContext(context.Background())
+}
+
+// GetAllTeamsWithContext returns a list of all Premier League teams with context.
+func (ts *TeamService) GetAllTeamsWithContext(ctx context.Context) ([]models.Team, error) {
+	return ts.bootstrapService.GetTeamsWithContext(ctx)
 }
 
 // GetTeam returns a single team by its unique FPL ID.
 func (ts *TeamService) GetTeam(id int) (*models.Team, error) {
-	teams, err := ts.GetAllTeams()
+	return ts.GetTeamWithContext(context.Background(), id)
+}
+
+// GetTeamWithContext returns a single team by its unique FPL ID with context.
+func (ts *TeamService) GetTeamWithContext(ctx context.Context, id int) (*models.Team, error) {
+	teams, err := ts.GetAllTeamsWithContext(ctx)
 	if err != nil {
 		return nil, err
 	}

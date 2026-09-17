@@ -1,6 +1,7 @@
 package endpoints
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -36,17 +37,26 @@ func NewFixtureService(client api.Client) *FixtureService {
 
 // GetAllFixtures returns a list of all Premier League fixtures for the current season.
 func (fs *FixtureService) GetAllFixtures() ([]models.Fixture, error) {
-	return fs.getAllFixtures(cacheFor(fs.client))
+	return fs.GetAllFixturesWithContext(context.Background())
 }
 
-func (fs *FixtureService) getAllFixtures(store cache.Cache) ([]models.Fixture, error) {
+// GetAllFixturesWithContext returns a list of all Premier League fixtures with context.
+func (fs *FixtureService) GetAllFixturesWithContext(ctx context.Context) ([]models.Fixture, error) {
+	return fs.getAllFixtures(ctx, cacheFor(fs.client))
+}
+
+func (fs *FixtureService) getAllFixtures(ctx context.Context, store cache.Cache) ([]models.Fixture, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	const cacheKey = "fixtures"
 	var fixtures []models.Fixture
 	if store.Get(cacheKey, &fixtures) {
 		return fixtures, nil
 	}
 
-	resp, err := fs.client.Get(fixturesEndpoint)
+	resp, err := fs.client.GetContext(ctx, fixturesEndpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get fixtures: %w", err)
 	}
@@ -65,6 +75,15 @@ func (fs *FixtureService) getAllFixtures(store cache.Cache) ([]models.Fixture, e
 
 // GetFixture returns a single fixture by its unique FPL ID.
 func (fs *FixtureService) GetFixture(id int) (*models.Fixture, error) {
+	return fs.GetFixtureWithContext(context.Background(), id)
+}
+
+// GetFixtureWithContext returns a single fixture by its unique FPL ID with context.
+func (fs *FixtureService) GetFixtureWithContext(ctx context.Context, id int) (*models.Fixture, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	store := cacheFor(fs.client)
 	cacheKey := fmt.Sprintf("fixture_%d", id)
 	var fixture models.Fixture
@@ -72,7 +91,7 @@ func (fs *FixtureService) GetFixture(id int) (*models.Fixture, error) {
 		return &fixture, nil
 	}
 
-	fixtures, err := fs.getAllFixtures(store)
+	fixtures, err := fs.getAllFixtures(ctx, store)
 	if err != nil {
 		return nil, err
 	}

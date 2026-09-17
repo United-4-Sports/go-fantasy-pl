@@ -8,7 +8,11 @@ import (
 )
 
 // Result is a generic wrapper for a value and an error,
-// used for returning results from asynchronous operations.
+// used for returning results from asynchronous operations. Single-resource async
+// methods deliver exactly one buffered Result (including cancellation errors),
+// then close the channel. Abandoning the channel never blocks result delivery.
+// A nil context is treated as context.Background(). Batch delivery is separate:
+// cancellation may stop delivery of batch results.
 type Result[T any] struct {
 	Value T
 	Err   error
@@ -28,11 +32,8 @@ func (ps *PlayerService) GetAllPlayersAsync(ctx context.Context) <-chan Result[[
 	ch := make(chan Result[[]models.Player], 1)
 	go func() {
 		defer close(ch)
-		players, err := ps.GetAllPlayers()
-		select {
-		case ch <- Result[[]models.Player]{Value: players, Err: err}:
-		case <-ctx.Done():
-		}
+		players, err := ps.GetAllPlayersWithContext(ctx)
+		ch <- Result[[]models.Player]{Value: players, Err: err}
 	}()
 	return ch
 }
@@ -43,11 +44,8 @@ func (ps *PlayerService) GetPlayerHistoryAsync(ctx context.Context, id int) <-ch
 	ch := make(chan Result[*models.PlayerHistory], 1)
 	go func() {
 		defer close(ch)
-		history, err := ps.GetPlayerHistory(id)
-		select {
-		case ch <- Result[*models.PlayerHistory]{Value: history, Err: err}:
-		case <-ctx.Done():
-		}
+		history, err := ps.GetPlayerHistoryWithContext(ctx, id)
+		ch <- Result[*models.PlayerHistory]{Value: history, Err: err}
 	}()
 	return ch
 }
@@ -55,6 +53,7 @@ func (ps *PlayerService) GetPlayerHistoryAsync(ctx context.Context, id int) <-ch
 // GetPlayerHistoriesBatch fetches player histories concurrently for multiple player IDs.
 // Results are sent to the returned channel as they complete.
 func (ps *PlayerService) GetPlayerHistoriesBatch(ctx context.Context, ids []int) <-chan PlayerHistoryResult {
+	ctx = normalizeContext(ctx)
 	store := cacheFor(ps.client)
 	ch := make(chan PlayerHistoryResult, len(ids))
 	var wg sync.WaitGroup
@@ -63,7 +62,7 @@ func (ps *PlayerService) GetPlayerHistoriesBatch(ctx context.Context, ids []int)
 		wg.Add(1)
 		go func(playerID int) {
 			defer wg.Done()
-			history, err := ps.getPlayerHistory(playerID, store)
+			history, err := ps.getPlayerHistory(ctx, playerID, store)
 			select {
 			case ch <- PlayerHistoryResult{PlayerID: playerID, History: history, Err: err}:
 			case <-ctx.Done():
@@ -85,11 +84,8 @@ func (fs *FixtureService) GetAllFixturesAsync(ctx context.Context) <-chan Result
 	ch := make(chan Result[[]models.Fixture], 1)
 	go func() {
 		defer close(ch)
-		fixtures, err := fs.GetAllFixtures()
-		select {
-		case ch <- Result[[]models.Fixture]{Value: fixtures, Err: err}:
-		case <-ctx.Done():
-		}
+		fixtures, err := fs.GetAllFixturesWithContext(ctx)
+		ch <- Result[[]models.Fixture]{Value: fixtures, Err: err}
 	}()
 	return ch
 }
@@ -100,11 +96,8 @@ func (ts *TeamService) GetAllTeamsAsync(ctx context.Context) <-chan Result[[]mod
 	ch := make(chan Result[[]models.Team], 1)
 	go func() {
 		defer close(ch)
-		teams, err := ts.GetAllTeams()
-		select {
-		case ch <- Result[[]models.Team]{Value: teams, Err: err}:
-		case <-ctx.Done():
-		}
+		teams, err := ts.GetAllTeamsWithContext(ctx)
+		ch <- Result[[]models.Team]{Value: teams, Err: err}
 	}()
 	return ch
 }
@@ -115,11 +108,8 @@ func (ms *ManagerService) GetManagerAsync(ctx context.Context, id int) <-chan Re
 	ch := make(chan Result[*models.Manager], 1)
 	go func() {
 		defer close(ch)
-		manager, err := ms.GetManager(id)
-		select {
-		case ch <- Result[*models.Manager]{Value: manager, Err: err}:
-		case <-ctx.Done():
-		}
+		manager, err := ms.GetManagerWithContext(ctx, id)
+		ch <- Result[*models.Manager]{Value: manager, Err: err}
 	}()
 	return ch
 }
@@ -130,11 +120,8 @@ func (ms *ManagerService) GetCurrentTeamAsync(ctx context.Context, managerID int
 	ch := make(chan Result[*models.ManagerTeam], 1)
 	go func() {
 		defer close(ch)
-		team, err := ms.GetCurrentTeam(managerID)
-		select {
-		case ch <- Result[*models.ManagerTeam]{Value: team, Err: err}:
-		case <-ctx.Done():
-		}
+		team, err := ms.GetCurrentTeamWithContext(ctx, managerID)
+		ch <- Result[*models.ManagerTeam]{Value: team, Err: err}
 	}()
 	return ch
 }
@@ -145,11 +132,8 @@ func (ls *LiveService) GetEventLiveAsync(ctx context.Context, eventID int) <-cha
 	ch := make(chan Result[*models.EventLive], 1)
 	go func() {
 		defer close(ch)
-		live, err := ls.GetEventLive(eventID)
-		select {
-		case ch <- Result[*models.EventLive]{Value: live, Err: err}:
-		case <-ctx.Done():
-		}
+		live, err := ls.GetEventLiveWithContext(ctx, eventID)
+		ch <- Result[*models.EventLive]{Value: live, Err: err}
 	}()
 	return ch
 }
@@ -160,11 +144,8 @@ func (ms *ManagerService) GetManagerHistoryAsync(ctx context.Context, id int) <-
 	ch := make(chan Result[*models.ManagerHistory], 1)
 	go func() {
 		defer close(ch)
-		history, err := ms.GetManagerHistory(id)
-		select {
-		case ch <- Result[*models.ManagerHistory]{Value: history, Err: err}:
-		case <-ctx.Done():
-		}
+		history, err := ms.GetManagerHistoryWithContext(ctx, id)
+		ch <- Result[*models.ManagerHistory]{Value: history, Err: err}
 	}()
 	return ch
 }

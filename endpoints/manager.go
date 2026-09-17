@@ -43,6 +43,15 @@ func (ms *ManagerService) validateManager(manager *models.Manager) error {
 
 // GetManager returns basic information about an FPL manager by their unique entry ID.
 func (ms *ManagerService) GetManager(id int) (*models.Manager, error) {
+	return ms.GetManagerWithContext(context.Background(), id)
+}
+
+// GetManagerWithContext returns basic manager information with context.
+func (ms *ManagerService) GetManagerWithContext(ctx context.Context, id int) (*models.Manager, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	store := cacheFor(ms.client)
 	cacheKey := fmt.Sprintf("manager_%d", id)
 	var manager models.Manager
@@ -51,7 +60,7 @@ func (ms *ManagerService) GetManager(id int) (*models.Manager, error) {
 	}
 
 	endpoint := fmt.Sprintf(managerDetailsEndpoint, id)
-	resp, err := ms.client.Get(endpoint)
+	resp, err := ms.client.GetContext(ctx, endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get manager data: %w", err)
 	}
@@ -87,8 +96,17 @@ func (ms *ManagerService) GetManager(id int) (*models.Manager, error) {
 
 // GetCurrentTeam returns the current team selection (picks) for a manager.
 func (ms *ManagerService) GetCurrentTeam(managerID int) (*models.ManagerTeam, error) {
+	return ms.GetCurrentTeamWithContext(context.Background(), managerID)
+}
+
+// GetCurrentTeamWithContext returns the manager's current team selection with context.
+func (ms *ManagerService) GetCurrentTeamWithContext(ctx context.Context, managerID int) (*models.ManagerTeam, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	store := cacheFor(ms.client)
-	currentGameWeekID, err := ms.bootstrapService.getCurrentGameWeek(context.Background(), store)
+	currentGameWeekID, err := ms.bootstrapService.getCurrentGameWeek(ctx, store)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current game week: %w", err)
 	}
@@ -103,7 +121,7 @@ func (ms *ManagerService) GetCurrentTeam(managerID int) (*models.ManagerTeam, er
 	}
 
 	endpoint := fmt.Sprintf(managerGameWeekPicksEndpoint, managerID, currentGameWeekID)
-	resp, err := ms.client.Get(endpoint)
+	resp, err := ms.client.GetContext(ctx, endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get manager team: %w", err)
 	}
@@ -125,6 +143,15 @@ func (ms *ManagerService) GetCurrentTeam(managerID int) (*models.ManagerTeam, er
 
 // GetManagerHistory returns the season-by-season and gameweek-by-gameweek history for a manager.
 func (ms *ManagerService) GetManagerHistory(id int) (*models.ManagerHistory, error) {
+	return ms.GetManagerHistoryWithContext(context.Background(), id)
+}
+
+// GetManagerHistoryWithContext returns the season and gameweek history with context.
+func (ms *ManagerService) GetManagerHistoryWithContext(ctx context.Context, id int) (*models.ManagerHistory, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	store := cacheFor(ms.client)
 	cacheKey := fmt.Sprintf("manager_history_%d", id)
 	var managerHistory models.ManagerHistory
@@ -133,7 +160,7 @@ func (ms *ManagerService) GetManagerHistory(id int) (*models.ManagerHistory, err
 	}
 
 	endpoint := fmt.Sprintf(managerHistoryEndpoint, id)
-	resp, err := ms.client.Get(endpoint)
+	resp, err := ms.client.GetContext(ctx, endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get manager history data: %w", err)
 	}

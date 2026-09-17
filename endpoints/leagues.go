@@ -1,6 +1,7 @@
 package endpoints
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -58,6 +59,15 @@ func NewLeagueService(client api.Client) *LeagueService {
 // GetClassicLeagueStandings returns the standings for a classic league by its unique ID.
 // The page parameter allows for paginated access to large leagues (50 entries per page).
 func (ls *LeagueService) GetClassicLeagueStandings(id, page int) (*models.ClassicLeague, error) {
+	return ls.GetClassicLeagueStandingsWithContext(context.Background(), id, page)
+}
+
+// GetClassicLeagueStandingsWithContext returns classic league standings with context.
+func (ls *LeagueService) GetClassicLeagueStandingsWithContext(ctx context.Context, id, page int) (*models.ClassicLeague, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	store := cacheFor(ls.client)
 	// Only cache first few pages to prevent memory bloat
 	useCache := page <= maxPageCache
@@ -71,7 +81,7 @@ func (ls *LeagueService) GetClassicLeagueStandings(id, page int) (*models.Classi
 	}
 
 	endpoint := fmt.Sprintf(classicLeagueEndpoint, id, page)
-	resp, err := ls.client.Get(endpoint)
+	resp, err := ls.client.GetContext(ctx, endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get league standings: %w", err)
 	}
@@ -154,6 +164,15 @@ func (ls *LeagueService) GetTotalPages(league *models.ClassicLeague) int {
 //
 // Page starts from 1 and event is optional (set 0 to omit it).
 func (ls *LeagueService) GetH2HLeagueMatches(id, page, event int) (*models.H2HLeagueMatchesPage, error) {
+	return ls.GetH2HLeagueMatchesWithContext(context.Background(), id, page, event)
+}
+
+// GetH2HLeagueMatchesWithContext returns paginated H2H matches with context.
+func (ls *LeagueService) GetH2HLeagueMatchesWithContext(ctx context.Context, id, page, event int) (*models.H2HLeagueMatchesPage, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if id <= 0 {
 		return nil, fmt.Errorf("league ID must be positive")
 	}
@@ -171,7 +190,7 @@ func (ls *LeagueService) GetH2HLeagueMatches(id, page, event int) (*models.H2HLe
 	}
 
 	endpoint := fmt.Sprintf("%s?%s", fmt.Sprintf(h2hLeagueMatchesPath, id), params.Encode())
-	resp, err := ls.client.Get(endpoint)
+	resp, err := ls.client.GetContext(ctx, endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get H2H league matches: %w", err)
 	}
@@ -223,6 +242,15 @@ func parseAPIErrorDetail(body []byte) string {
 
 // GetH2HLeagueStandings returns paginated H2H league standings.
 func (ls *LeagueService) GetH2HLeagueStandings(id, page int) (*models.H2HLeagueStandings, error) {
+	return ls.GetH2HLeagueStandingsWithContext(context.Background(), id, page)
+}
+
+// GetH2HLeagueStandingsWithContext returns paginated H2H standings with context.
+func (ls *LeagueService) GetH2HLeagueStandingsWithContext(ctx context.Context, id, page int) (*models.H2HLeagueStandings, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if id <= 0 {
 		return nil, fmt.Errorf("league ID must be positive")
 	}
@@ -231,7 +259,7 @@ func (ls *LeagueService) GetH2HLeagueStandings(id, page int) (*models.H2HLeagueS
 	}
 
 	endpoint := fmt.Sprintf("%s?page_standings=%d", fmt.Sprintf(h2hLeagueStandings, id), page)
-	resp, err := ls.client.Get(endpoint)
+	resp, err := ls.client.GetContext(ctx, endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get H2H league standings: %w", err)
 	}

@@ -1,6 +1,7 @@
 package endpoints
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -52,6 +53,15 @@ func NewLiveService(client api.Client) *LiveService {
 // Note that bonus points are provisional while fixtures are in progress,
 // and upstream CDN caching means data can lag reality by a few minutes.
 func (ls *LiveService) GetEventLive(eventID int) (*models.EventLive, error) {
+	return ls.GetEventLiveWithContext(context.Background(), eventID)
+}
+
+// GetEventLiveWithContext returns the live points data for a gameweek with context.
+func (ls *LiveService) GetEventLiveWithContext(ctx context.Context, eventID int) (*models.EventLive, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	store := cacheFor(ls.client)
 	cacheKey := fmt.Sprintf("event_live_%d", eventID)
 	var live models.EventLive
@@ -60,7 +70,7 @@ func (ls *LiveService) GetEventLive(eventID int) (*models.EventLive, error) {
 	}
 
 	endpoint := fmt.Sprintf(eventLiveEndpoint, eventID)
-	resp, err := ls.client.Get(endpoint)
+	resp, err := ls.client.GetContext(ctx, endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get event live data: %w", err)
 	}

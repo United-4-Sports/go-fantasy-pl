@@ -164,6 +164,10 @@ func (bs *BootstrapService) GetNextGameWeek() (int, error) {
 
 // GetNextGameWeekWithContext returns the ID of the next upcoming gameweek with context.
 func (bs *BootstrapService) GetNextGameWeekWithContext(ctx context.Context) (int, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	store := cacheFor(bs.client)
 	const cacheKey = "next_gameweek"
 	var gw int
@@ -206,6 +210,10 @@ func (bs *BootstrapService) GetNextGameWeekModel(ctx context.Context) (*models.G
 
 // GetUpcomingGameWeeks returns the next count upcoming gameweeks, ordered chronologically.
 func (bs *BootstrapService) GetUpcomingGameWeeks(ctx context.Context, count int) ([]models.GameWeek, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if count <= 0 {
 		return []models.GameWeek{}, nil
 	}
@@ -253,7 +261,11 @@ func (bs *BootstrapService) GetSettingsWithContext(ctx context.Context) (*models
 // and populates every section's cache key with its own TTL, so callers
 // asking for several sections never trigger several downloads.
 func bootstrapSection[T any](ctx context.Context, bs *BootstrapService, store cache.Cache, cacheKey string, extract func(*Response) T) (T, error) {
+	ctx = normalizeContext(ctx)
 	var cached T
+	if err := ctx.Err(); err != nil {
+		return cached, err
+	}
 	if store.Get(cacheKey, &cached) {
 		return cached, nil
 	}
@@ -261,14 +273,14 @@ func bootstrapSection[T any](ctx context.Context, bs *BootstrapService, store ca
 	bootstrapMu.Lock()
 	defer bootstrapMu.Unlock()
 
+	if err := ctx.Err(); err != nil {
+		return cached, err
+	}
+
 	// Re-check under the lock: another goroutine may have populated the
 	// section while we waited.
 	if store.Get(cacheKey, &cached) {
 		return cached, nil
-	}
-
-	if ctx == nil {
-		ctx = context.Background()
 	}
 
 	resp, err := bs.client.GetContext(ctx, bootstrapEndpoint)
