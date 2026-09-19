@@ -43,15 +43,26 @@ func (ms *ManagerService) validateManager(manager *models.Manager) error {
 
 // GetManager returns basic information about an FPL manager by their unique entry ID.
 func (ms *ManagerService) GetManager(id int) (*models.Manager, error) {
+	return ms.GetManagerWithContext(context.Background(), id)
+}
+
+// GetManagerWithContext returns basic manager information with context.
+func (ms *ManagerService) GetManagerWithContext(ctx context.Context, id int) (*models.Manager, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	store := cacheFor(ms.client)
 	cacheKey := fmt.Sprintf("manager_%d", id)
 	var manager models.Manager
-	if store.Get(cacheKey, &manager) {
+	if hit, err := cacheGet(ctx, ms.client, store, cacheKey, &manager); err != nil {
+		return nil, err
+	} else if hit {
 		return &manager, nil
 	}
 
 	endpoint := fmt.Sprintf(managerDetailsEndpoint, id)
-	resp, err := ms.client.Get(endpoint)
+	resp, err := ms.client.GetContext(ctx, endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get manager data: %w", err)
 	}
@@ -78,8 +89,8 @@ func (ms *ManagerService) GetManager(id int) (*models.Manager, error) {
 		return nil, err
 	}
 
-	if err := store.Set(cacheKey, &manager, managerCacheTTL); err != nil {
-		return nil, fmt.Errorf("failed to cache manager data: %w", err)
+	if err := cacheSet(ctx, ms.client, store, cacheKey, &manager, managerCacheTTL); err != nil {
+		return nil, err
 	}
 
 	return &manager, nil
@@ -87,8 +98,17 @@ func (ms *ManagerService) GetManager(id int) (*models.Manager, error) {
 
 // GetCurrentTeam returns the current team selection (picks) for a manager.
 func (ms *ManagerService) GetCurrentTeam(managerID int) (*models.ManagerTeam, error) {
+	return ms.GetCurrentTeamWithContext(context.Background(), managerID)
+}
+
+// GetCurrentTeamWithContext returns the manager's current team selection with context.
+func (ms *ManagerService) GetCurrentTeamWithContext(ctx context.Context, managerID int) (*models.ManagerTeam, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	store := cacheFor(ms.client)
-	currentGameWeekID, err := ms.bootstrapService.getCurrentGameWeek(context.Background(), store)
+	currentGameWeekID, err := ms.bootstrapService.getCurrentGameWeek(ctx, store)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current game week: %w", err)
 	}
@@ -98,12 +118,14 @@ func (ms *ManagerService) GetCurrentTeam(managerID int) (*models.ManagerTeam, er
 	// bounded by the unchanged gameweeks metadata TTL (3 minutes).
 	cacheKey := fmt.Sprintf("manager_team_%d_gw%d", managerID, currentGameWeekID)
 	var team models.ManagerTeam
-	if store.Get(cacheKey, &team) {
+	if hit, err := cacheGet(ctx, ms.client, store, cacheKey, &team); err != nil {
+		return nil, err
+	} else if hit {
 		return &team, nil
 	}
 
 	endpoint := fmt.Sprintf(managerGameWeekPicksEndpoint, managerID, currentGameWeekID)
-	resp, err := ms.client.Get(endpoint)
+	resp, err := ms.client.GetContext(ctx, endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get manager team: %w", err)
 	}
@@ -117,23 +139,34 @@ func (ms *ManagerService) GetCurrentTeam(managerID int) (*models.ManagerTeam, er
 		return nil, fmt.Errorf("failed to decode manager team: %w", err)
 	}
 
-	if err := store.Set(cacheKey, &team, managerCacheTTL); err != nil {
-		return nil, fmt.Errorf("failed to cache manager team: %w", err)
+	if err := cacheSet(ctx, ms.client, store, cacheKey, &team, managerCacheTTL); err != nil {
+		return nil, err
 	}
 	return &team, nil
 }
 
 // GetManagerHistory returns the season-by-season and gameweek-by-gameweek history for a manager.
 func (ms *ManagerService) GetManagerHistory(id int) (*models.ManagerHistory, error) {
+	return ms.GetManagerHistoryWithContext(context.Background(), id)
+}
+
+// GetManagerHistoryWithContext returns the season and gameweek history with context.
+func (ms *ManagerService) GetManagerHistoryWithContext(ctx context.Context, id int) (*models.ManagerHistory, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	store := cacheFor(ms.client)
 	cacheKey := fmt.Sprintf("manager_history_%d", id)
 	var managerHistory models.ManagerHistory
-	if store.Get(cacheKey, &managerHistory) {
+	if hit, err := cacheGet(ctx, ms.client, store, cacheKey, &managerHistory); err != nil {
+		return nil, err
+	} else if hit {
 		return &managerHistory, nil
 	}
 
 	endpoint := fmt.Sprintf(managerHistoryEndpoint, id)
-	resp, err := ms.client.Get(endpoint)
+	resp, err := ms.client.GetContext(ctx, endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get manager history data: %w", err)
 	}
@@ -156,8 +189,8 @@ func (ms *ManagerService) GetManagerHistory(id int) (*models.ManagerHistory, err
 		return nil, fmt.Errorf("failed to decode manager data: %w", err)
 	}
 
-	if err := store.Set(cacheKey, &managerHistory, managerCacheTTL); err != nil {
-		return nil, fmt.Errorf("failed to cache manager history: %w", err)
+	if err := cacheSet(ctx, ms.client, store, cacheKey, &managerHistory, managerCacheTTL); err != nil {
+		return nil, err
 	}
 
 	return &managerHistory, nil

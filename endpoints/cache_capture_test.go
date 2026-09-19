@@ -64,15 +64,15 @@ func TestOperationCapturesCache(t *testing.T) {
 		keys          []string
 		call          func(api.Client) error
 	}{
-		{"bootstrap", `{"teams":[{"id":1}]}`, bootKeys, func(c api.Client) error { _, e := NewBootstrapService(c).GetTeams(); return e }},
-		{"next gameweek nested", `{"events":[{"id":7,"is_next":true}]}`, append(append([]string{}, bootKeys...), "next_gameweek"), func(c api.Client) error { _, e := NewBootstrapService(c).GetNextGameWeek(); return e }},
+		{"bootstrap", `{"teams":[{"id":1}],"elements":[{"id":2}],"events":[],"game_settings":{}}`, bootKeys, func(c api.Client) error { _, e := NewBootstrapService(c).GetTeams(); return e }},
+		{"next gameweek nested", `{"teams":[{"id":1}],"elements":[{"id":1}],"events":[{"id":7,"is_next":true}],"game_settings":{}}`, append(append([]string{}, bootKeys...), "next_gameweek"), func(c api.Client) error { _, e := NewBootstrapService(c).GetNextGameWeek(); return e }},
 		{"fixture nested", `[{"id":1}]`, []string{"fixtures", "fixture_1"}, func(c api.Client) error { _, e := NewFixtureService(c).GetFixture(1); return e }},
 		{"manager", `{"id":1}`, []string{"manager_1"}, func(c api.Client) error { _, e := NewManagerService(c, NewBootstrapService(c)).GetManager(1); return e }},
 		{"manager history", `{}`, []string{"manager_history_1"}, func(c api.Client) error {
 			_, e := NewManagerService(c, NewBootstrapService(c)).GetManagerHistory(1)
 			return e
 		}},
-		{"manager picks nested", `{"events":[{"id":7,"is_current":true}],"picks":[]}`, append(append([]string{}, bootKeys...), "manager_team_1_gw7"), func(c api.Client) error {
+		{"manager picks nested", `{"teams":[{"id":1}],"elements":[{"id":1}],"events":[{"id":7,"is_current":true}],"game_settings":{}}`, append(append([]string{}, bootKeys...), "manager_team_1_gw7"), func(c api.Client) error {
 			_, e := NewManagerService(c, NewBootstrapService(c)).GetCurrentTeam(1)
 			return e
 		}},
