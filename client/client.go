@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/AbdoAnss/go-fantasy-pl/endpoints"
@@ -33,6 +34,13 @@ type Client struct {
 	cacheSet          bool
 	cache             cache.Cache   // retained selection; shared storage is independent of selection
 	redisOptions      *RedisOptions // deferred owned pool construction
+
+	// Ownership: Close releases only these. Caller-supplied pools, caches and
+	// transports are never closed, and shared stores are never cleared.
+	ownedCache        bool // SDK created the cache and its pool (WithRedisCache, env Redis)
+	ownsHTTPTransport bool // SDK created the default transport (no WithHTTPClient)
+	closeOnce         sync.Once
+	closeErr          error
 
 	// Bootstrap provides access to core FPL data like players, teams, and gameweeks.
 	Bootstrap *endpoints.BootstrapService
@@ -69,6 +77,8 @@ func NewClient(opts ...Option) (*Client, error) {
 		},
 		baseURL:   baseURL,
 		rateLimit: newRateLimiter(50, time.Minute),
+		// The transport above belongs to this client; WithHTTPClient clears this.
+		ownsHTTPTransport: true,
 	}
 
 	for _, opt := range opts {
@@ -85,9 +95,10 @@ func NewClient(opts ...Option) (*Client, error) {
 
 	var err error
 	if !c.cacheSet {
-		c.cache, err = configureDefaultCache()
+		c.cache, c.ownedCache, err = configureDefaultCache()
 	} else if c.redisOptions != nil {
 		c.cache, err = cache.NewRedisCache(*c.redisOptions)
+		c.ownedCache = true
 	}
 	if err != nil {
 		return nil, fmt.Errorf("client: cache configuration failed: %w", err)
@@ -116,6 +127,36 @@ type Cache = cache.Cache
 // The caller owns explicitly supplied cache resources (including pools
 // supplied via WithRedisCacheClient).
 func (c *Client) Cache() Cache { return c.cache }
+
+// Close releases the resources this client created and is idempotent: repeated
+// calls return the same result. It closes an SDK-created Redis pool and closes
+// idle connections on the SDK-created HTTP transport.
+//
+// It deliberately does not: close a caller-supplied Redis pool or cache
+// (WithCache, WithRedisCacheClient), close a caller-supplied http.Client or its
+// transport (WithHTTPClient), or clear/stop the shared in-memory store, whose
+// cleanup task lives for the process so other clients keep working.
+//
+// Close does not cancel in-flight work: stop requests (cancel their contexts)
+// before closing. After Close the client must not be reused when it owned the
+// cache, because the closed pool no longer serves reads or writes.
+func (c *Client) Close() error {
+	c.closeOnce.Do(func() {
+		if c.ownedCache {
+			if closer, ok := c.cache.(interface{ Close() error }); ok {
+				c.closeErr = closer.Close()
+			}
+		}
+		// ownsHTTPTransport is only true when this client built the default
+		// transport, which is always a non-nil *http.Transport.
+		if c.ownsHTTPTransport {
+			if transport, ok := c.httpClient.Transport.(*http.Transport); ok {
+				transport.CloseIdleConnections()
+			}
+		}
+	})
+	return c.closeErr
+}
 
 // BaseURL returns the configured base URL for the FPL API.
 func (c *Client) BaseURL() string {

@@ -25,6 +25,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// This client owns the Redis pool it dialed, so it is the one to release
+	// it. Close is idempotent; a caller-supplied pool would be left untouched.
+	defer func() {
+		if err := c.Close(); err != nil {
+			log.Printf("closing client: %v", err)
+		}
+	}()
 
 	fmt.Println("Fetching teams (this will populate the cache)...")
 	teams, err := c.Teams.GetAllTeams()

@@ -32,26 +32,29 @@ func newDefaultMemoryCache() *cache.MemoryCache {
 	return mc
 }
 
-func configureDefaultCache() (cache.Cache, error) {
+// configureDefaultCache resolves the cache for clients without an explicit
+// cache option. The boolean reports whether the SDK created (and therefore
+// owns) the returned store: true only for a pool it dialed itself.
+func configureDefaultCache() (cache.Cache, bool, error) {
 	backend := strings.ToLower(strings.TrimSpace(os.Getenv(cacheBackendEnv)))
 	switch backend {
 	case "memory":
-		return defaultMemoryCache, nil
+		return defaultMemoryCache, false, nil
 	case "", "auto", "redis":
 		opts, err := redisOptionsFromEnv()
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		rc, err := cache.NewRedisCache(opts)
 		if err != nil {
 			if backend == "redis" {
-				return nil, err
+				return nil, false, err
 			}
-			return defaultMemoryCache, nil
+			return defaultMemoryCache, false, nil
 		}
-		return rc, nil
+		return rc, true, nil
 	default:
-		return nil, fmt.Errorf("unsupported %s value %q", cacheBackendEnv, backend)
+		return nil, false, fmt.Errorf("unsupported %s value %q", cacheBackendEnv, backend)
 	}
 }
 

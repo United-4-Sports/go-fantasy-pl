@@ -3,6 +3,7 @@ package endpoints
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/AbdoAnss/go-fantasy-pl/models"
 )
@@ -51,24 +52,68 @@ func (ps *PlayerService) GetPlayerHistoryAsync(ctx context.Context, id int) <-ch
 	return deliverAsync(func() (*models.PlayerHistory, error) { return ps.GetPlayerHistoryWithContext(ctx, id) })
 }
 
-// GetPlayerHistoriesBatch fetches player histories concurrently for multiple player IDs.
-// Results are sent to the returned channel as they complete.
+// batchWorkers bounds how many player-history fetches GetPlayerHistoriesBatch
+// runs at once. It is a fixed, documented default rather than one goroutine per
+// ID. The HTTP transport's connection cap and the rate limiter are not worker
+// permits: they bound total connections and sustained request rate, so the batch
+// owns its own concurrency bound. Batches larger than this stay queued instead
+// of flooding the upstream API.
+const batchWorkers = 4
+
+// GetPlayerHistoriesBatch fetches player histories for multiple player IDs with
+// a bounded worker pool of at most batchWorkers concurrent fetches. Results are
+// sent to the returned channel as they complete; completion order is unspecified.
+//
+// Delivery contract:
+//   - If the context remains active, every input occurrence produces exactly one
+//     PlayerHistoryResult. IDs and duplicates are preserved.
+//   - The result channel is buffered to the worker bound, never to len(ids), so
+//     a large batch cannot allocate one slot per ID. Workers pull input
+//     positions from a shared counter, so no per-ID queue exists at all.
+//   - Every send selects on ctx.Done(). Cancellation stops dispatch and reaches
+//     in-flight fetches. Partial results are allowed: an ID that was never
+//     dispatched need not emit a result. Cancelling is how a caller releases a
+//     batch whose channel it stops consuming; abandoning the channel without
+//     cancelling leaves the workers blocked, so callers must cancel.
+//   - Empty input closes the returned channel promptly without starting work.
 func (ps *PlayerService) GetPlayerHistoriesBatch(ctx context.Context, ids []int) <-chan PlayerHistoryResult {
 	ctx = normalizeContext(ctx)
+	// Capture the store once, before any worker starts: workers and the nested
+	// fetch helper must not be able to switch stores mid-operation.
 	store := cacheFor(ps.client)
-	ch := make(chan PlayerHistoryResult, len(ids))
-	var wg sync.WaitGroup
 
-	for _, id := range ids {
-		wg.Add(1)
-		go func(playerID int) {
+	workers := min(batchWorkers, len(ids))
+	ch := make(chan PlayerHistoryResult, workers)
+	if workers == 0 {
+		close(ch)
+		return ch
+	}
+
+	// Workers pull input positions from a shared counter, so there is no job
+	// queue or dispatcher goroutine. A cancelled context stops each worker
+	// before it takes the next ID, which bounds post-cancel work to the pool.
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for range workers {
+		go func() {
 			defer wg.Done()
-			history, err := ps.getPlayerHistory(ctx, playerID, store)
-			select {
-			case ch <- PlayerHistoryResult{PlayerID: playerID, History: history, Err: err}:
-			case <-ctx.Done():
+			for {
+				if ctx.Err() != nil {
+					return
+				}
+				i := next.Add(1) - 1
+				if i >= int64(len(ids)) {
+					return
+				}
+				history, err := ps.getPlayerHistory(ctx, ids[i], store)
+				select {
+				case ch <- PlayerHistoryResult{PlayerID: ids[i], History: history, Err: err}:
+				case <-ctx.Done():
+					return
+				}
 			}
-		}(id)
+		}()
 	}
 
 	go func() {

@@ -95,6 +95,12 @@ one client's warming serves another. Current-team picks are cached per
 manager and gameweek (`manager_team_{id}_gw{n}`); old `manager_team_{id}`
 entries expire naturally and are never cleared.
 
+`Close()` releases only what the SDK created: an SDK-dialed Redis pool and idle
+connections on the SDK-created HTTP transport. Caller-supplied pools, caches,
+and `http.Client`s are never closed, and closing one client never clears the
+shared in-memory store. Stop in-flight requests (cancel their contexts) before
+calling it; `Close()` is idempotent.
+
 ### Environment Variables
 
 ```bash

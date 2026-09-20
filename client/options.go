@@ -16,18 +16,29 @@ type Option func(*Client)
 // RedisOptions configures the SDK's Redis-backed cache.
 type RedisOptions = cache.RedisOptions
 
-// WithHTTPClient sets a custom http.Client for the SDK to use.
+// WithHTTPClient sets a custom http.Client for the SDK to use. The client and
+// its transport remain caller-owned: the SDK never closes them, and Close only
+// closes idle connections on a transport the SDK created itself.
 func WithHTTPClient(httpClient *http.Client) Option {
 	return func(c *Client) {
 		c.httpClient = httpClient
+		c.ownsHTTPTransport = false
 	}
 }
 
-// WithTimeout sets the timeout for all API requests.
+// WithTimeout sets the timeout for all API requests. A caller-supplied
+// http.Client is copied rather than mutated, so a client shared with the
+// application keeps its own timeout; the transport itself is still borrowed,
+// preserving connection pooling. The final timeout option wins.
 func WithTimeout(timeout time.Duration) Option {
 	return func(c *Client) {
 		if c.httpClient == nil {
 			c.httpClient = &http.Client{}
+			c.ownsHTTPTransport = true
+		}
+		if !c.ownsHTTPTransport {
+			clone := *c.httpClient
+			c.httpClient = &clone
 		}
 		c.httpClient.Timeout = timeout
 	}
