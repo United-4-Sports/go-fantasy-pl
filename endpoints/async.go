@@ -64,8 +64,8 @@ const batchWorkers = 4
 // sent to the returned channel as they complete; completion order is unspecified.
 //
 // Delivery contract:
-//   - Every input occurrence produces exactly one PlayerHistoryResult. IDs are
-//     preserved, including duplicates, and duplicate IDs produce duplicate results.
+//   - If the context remains active, every input occurrence produces exactly one
+//     PlayerHistoryResult. IDs and duplicates are preserved.
 //   - The result channel and the internal job queue are buffered to the worker
 //     bound, never to len(ids), so a large batch cannot allocate one slot per ID.
 //   - Every send selects on ctx.Done(). Cancellation stops dispatch and reaches

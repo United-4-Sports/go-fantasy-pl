@@ -176,7 +176,11 @@ func (c *MemoryCache) Cleanup() {
 	}
 }
 
-// StartCleanupTask launches a background goroutine that periodically calls Cleanup.
+// StartCleanupTask launches a background goroutine that periodically calls
+// Cleanup. The ticker runs for the lifetime of the process and there is no stop
+// method, so it is intended for process-lifetime stores such as the SDK's
+// shared caches. The SDK never calls it for a store the caller supplied via
+// WithCache, so an explicit managed cache stays caller-owned.
 func (c *MemoryCache) StartCleanupTask(interval time.Duration) {
 	c.cleanupOnce.Do(func() {
 		ticker := time.NewTicker(interval)
