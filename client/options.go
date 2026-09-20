@@ -83,7 +83,6 @@ func WithRedisCache(opts RedisOptions) Option {
 		c.cache = nil
 		// Open only the final selected pool, after all options are validated.
 		c.redisOptions = &opts
-		c.ownedCache = true
 	}
 }
 
@@ -94,7 +93,6 @@ func WithRedisCache(opts RedisOptions) Option {
 func WithCache(store Cache) Option {
 	return func(c *Client) {
 		c.redisOptions = nil
-		c.ownedCache = false
 		c.cacheErr = nil
 		c.cacheSet = true
 		if store == nil {
@@ -113,7 +111,6 @@ func WithCache(store Cache) Option {
 func WithRedisCacheClient(pool *redis.Client, keyPrefix string) Option {
 	return func(c *Client) {
 		c.redisOptions = nil
-		c.ownedCache = false
 		c.cacheErr = nil
 		c.cacheSet = true
 		if pool == nil {
@@ -131,7 +128,6 @@ func WithRedisCacheClient(pool *redis.Client, keyPrefix string) Option {
 func WithMemoryCache() Option {
 	return func(c *Client) {
 		c.redisOptions = nil
-		c.ownedCache = false
 		c.cacheErr = nil
 		c.cacheSet = true
 		c.cache = defaultMemoryCache

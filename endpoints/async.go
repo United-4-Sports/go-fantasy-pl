@@ -3,6 +3,7 @@ package endpoints
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/AbdoAnss/go-fantasy-pl/models"
 )
@@ -66,8 +67,9 @@ const batchWorkers = 4
 // Delivery contract:
 //   - If the context remains active, every input occurrence produces exactly one
 //     PlayerHistoryResult. IDs and duplicates are preserved.
-//   - The result channel and the internal job queue are buffered to the worker
-//     bound, never to len(ids), so a large batch cannot allocate one slot per ID.
+//   - The result channel is buffered to the worker bound, never to len(ids), so
+//     a large batch cannot allocate one slot per ID. Workers pull input
+//     positions from a shared counter, so no per-ID queue exists at all.
 //   - Every send selects on ctx.Done(). Cancellation stops dispatch and reaches
 //     in-flight fetches. Partial results are allowed: an ID that was never
 //     dispatched need not emit a result. Cancelling is how a caller releases a
@@ -87,43 +89,32 @@ func (ps *PlayerService) GetPlayerHistoriesBatch(ctx context.Context, ids []int)
 		return ch
 	}
 
-	jobs := make(chan int, workers)
+	// Workers pull input positions from a shared counter, so there is no job
+	// queue or dispatcher goroutine. A cancelled context stops each worker
+	// before it takes the next ID, which bounds post-cancel work to the pool.
+	var next atomic.Int64
 	var wg sync.WaitGroup
 	wg.Add(workers)
 	for range workers {
 		go func() {
 			defer wg.Done()
 			for {
+				if ctx.Err() != nil {
+					return
+				}
+				i := next.Add(1) - 1
+				if i >= int64(len(ids)) {
+					return
+				}
+				history, err := ps.getPlayerHistory(ctx, ids[i], store)
 				select {
+				case ch <- PlayerHistoryResult{PlayerID: ids[i], History: history, Err: err}:
 				case <-ctx.Done():
 					return
-				case id, ok := <-jobs:
-					if !ok {
-						return
-					}
-					history, err := ps.getPlayerHistory(ctx, id, store)
-					select {
-					case ch <- PlayerHistoryResult{PlayerID: id, History: history, Err: err}:
-					case <-ctx.Done():
-						return
-					}
 				}
 			}
 		}()
 	}
-
-	// Dispatch keeps at most one buffered job per worker outstanding; it stops as
-	// soon as the context is done, so unstarted IDs are simply dropped.
-	go func() {
-		defer close(jobs)
-		for _, id := range ids {
-			select {
-			case jobs <- id:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
 
 	go func() {
 		wg.Wait()
