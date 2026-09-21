@@ -1,6 +1,6 @@
 # go-fantasy-pl
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/AbdoAnss/go-fantasy-pl)](https://goreportcard.com/report/github.com/AbdoAnss/go-fantasy-pl)
+[![Quality gate status](https://sonarcloud.io/api/project_badges/measure?project=United-4-Sports_go-fantasy-pl&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=United-4-Sports_go-fantasy-pl)
 [![Go Reference](https://pkg.go.dev/badge/github.com/AbdoAnss/go-fantasy-pl.svg)](https://pkg.go.dev/github.com/AbdoAnss/go-fantasy-pl)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
