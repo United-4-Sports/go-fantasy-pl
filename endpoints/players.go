@@ -2,10 +2,7 @@ package endpoints
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 
 	"github.com/AbdoAnss/go-fantasy-pl/api"
 	"github.com/AbdoAnss/go-fantasy-pl/internal/cache"
@@ -86,28 +83,17 @@ func (ps *PlayerService) getPlayerHistory(ctx context.Context, id int, store cac
 		return &cached, nil
 	}
 
-	endpoint := fmt.Sprintf(playerDetailsEndpoint, id)
-	resp, err := ps.client.GetContext(ctx, endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("error fetching player history: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		if resp.StatusCode == http.StatusNotFound {
-			return nil, fmt.Errorf("player not found: %d", id)
-		}
-		return nil, fmt.Errorf("error fetching player history: received status code %d", resp.StatusCode)
-	}
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("error reading response: %w", err)
-	}
-
 	var history models.PlayerHistory
-	if err := json.Unmarshal(bodyBytes, &history); err != nil {
-		return nil, fmt.Errorf("error decoding player history: %w", err)
+	if err := fetchJSON(ctx, ps.client, fmt.Sprintf(playerDetailsEndpoint, id), fetchSpec{
+		fetch:    "error fetching player history",
+		read:     "error reading response",
+		decode:   "error decoding player history",
+		notFound: func() error { return fmt.Errorf("player not found: %d", id) },
+		unexpected: func(code int) error {
+			return fmt.Errorf("error fetching player history: received status code %d", code)
+		},
+	}, &history); err != nil {
+		return nil, err
 	}
 
 	if history.History == nil {

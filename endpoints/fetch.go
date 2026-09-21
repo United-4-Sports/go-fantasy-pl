@@ -18,6 +18,9 @@ type fetchSpec struct {
 	// fetch prefixes the transport-failure error, e.g. "failed to get
 	// manager data".
 	fetch string
+	// read prefixes the body-read error; empty uses the shared
+	// "failed to read response body" wording.
+	read string
 	// decode prefixes the JSON-decode error, e.g. "failed to decode league
 	// data".
 	decode string
@@ -26,6 +29,9 @@ type fetchSpec struct {
 	// badRequest maps HTTP 400; used by H2H matches, whose 400s carry a
 	// query-rejection detail payload.
 	badRequest func(resp *http.Response) error
+	// unexpected overrides the generic unexpected-status error for call
+	// sites whose legacy wording predates the shared helper.
+	unexpected func(code int) error
 }
 
 // fetchJSON performs the GET + status policy + decode flow shared by the
@@ -43,9 +49,13 @@ func fetchJSON[T any](ctx context.Context, c api.Client, endpoint string, spec f
 		return err
 	}
 
+	readPrefix := spec.read
+	if readPrefix == "" {
+		readPrefix = "failed to read response body"
+	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read response body: %w", err)
+		return fmt.Errorf("%s: %w", readPrefix, err)
 	}
 	if err := json.Unmarshal(body, dest); err != nil {
 		return fmt.Errorf("%s: %w", spec.decode, err)
@@ -67,6 +77,9 @@ func statusError(resp *http.Response, spec fetchSpec) error {
 		if spec.badRequest != nil {
 			return spec.badRequest(resp)
 		}
+	}
+	if spec.unexpected != nil {
+		return spec.unexpected(resp.StatusCode)
 	}
 	return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 }
