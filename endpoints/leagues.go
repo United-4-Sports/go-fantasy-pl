@@ -71,10 +71,10 @@ func (ls *LeagueService) GetClassicLeagueStandingsWithContext(ctx context.Contex
 	store := cacheFor(ls.client)
 	// Only cache first few pages to prevent memory bloat
 	useCache := page <= maxPageCache
+	var league models.ClassicLeague
 
 	if useCache {
 		cacheKey := fmt.Sprintf("classic_league_%d_page_%d", id, page)
-		var league models.ClassicLeague
 		if hit, err := cacheGet(ctx, ls.client, store, cacheKey, &league); err != nil {
 			return nil, err
 		} else if hit {
@@ -82,29 +82,12 @@ func (ls *LeagueService) GetClassicLeagueStandingsWithContext(ctx context.Contex
 		}
 	}
 
-	endpoint := fmt.Sprintf(classicLeagueEndpoint, id, page)
-	resp, err := ls.client.GetContext(ctx, endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get league standings: %w", err)
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-	case http.StatusNotFound:
-		return nil, fmt.Errorf("league with ID %d not found: %w", id, ErrLeagueNotFound)
-	default:
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var league models.ClassicLeague
-	if err := json.Unmarshal(body, &league); err != nil {
-		return nil, fmt.Errorf("failed to decode league data: %w", err)
+	if err := fetchJSON(ctx, ls.client, fmt.Sprintf(classicLeagueEndpoint, id, page), fetchSpec{
+		fetch:    "failed to get league standings",
+		decode:   "failed to decode league data",
+		notFound: leagueNotFound(id),
+	}, &league); err != nil {
+		return nil, err
 	}
 
 	if err := ls.validateLeague(&league); err != nil {
@@ -192,39 +175,25 @@ func (ls *LeagueService) GetH2HLeagueMatchesWithContext(ctx context.Context, id,
 	}
 
 	endpoint := fmt.Sprintf("%s?%s", fmt.Sprintf(h2hLeagueMatchesPath, id), params.Encode())
-	resp, err := ls.client.GetContext(ctx, endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get H2H league matches: %w", err)
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-	case http.StatusNotFound:
-		return nil, fmt.Errorf("league with ID %d not found: %w", id, ErrLeagueNotFound)
-	case http.StatusBadRequest:
-		body, readErr := io.ReadAll(resp.Body)
-		if readErr != nil {
-			body = nil
-		}
-		return nil, &ErrInvalidH2HQuery{
-			LeagueID: id,
-			Page:     page,
-			Event:    event,
-			Detail:   parseAPIErrorDetail(body),
-		}
-	default:
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
 	var matches models.H2HLeagueMatchesPage
-	if err := json.Unmarshal(body, &matches); err != nil {
-		return nil, fmt.Errorf("failed to decode H2H matches data: %w", err)
+	if err := fetchJSON(ctx, ls.client, endpoint, fetchSpec{
+		fetch:    "failed to get H2H league matches",
+		decode:   "failed to decode H2H matches data",
+		notFound: leagueNotFound(id),
+		badRequest: func(resp *http.Response) error {
+			body, readErr := io.ReadAll(resp.Body)
+			if readErr != nil {
+				body = nil
+			}
+			return &ErrInvalidH2HQuery{
+				LeagueID: id,
+				Page:     page,
+				Event:    event,
+				Detail:   parseAPIErrorDetail(body),
+			}
+		},
+	}, &matches); err != nil {
+		return nil, err
 	}
 
 	return &matches, nil
@@ -261,28 +230,13 @@ func (ls *LeagueService) GetH2HLeagueStandingsWithContext(ctx context.Context, i
 	}
 
 	endpoint := fmt.Sprintf("%s?page_standings=%d", fmt.Sprintf(h2hLeagueStandings, id), page)
-	resp, err := ls.client.GetContext(ctx, endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get H2H league standings: %w", err)
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-	case http.StatusNotFound:
-		return nil, fmt.Errorf("league with ID %d not found: %w", id, ErrLeagueNotFound)
-	default:
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
 	var standings models.H2HLeagueStandings
-	if err := json.Unmarshal(body, &standings); err != nil {
-		return nil, fmt.Errorf("failed to decode H2H league standings data: %w", err)
+	if err := fetchJSON(ctx, ls.client, endpoint, fetchSpec{
+		fetch:    "failed to get H2H league standings",
+		decode:   "failed to decode H2H league standings data",
+		notFound: leagueNotFound(id),
+	}, &standings); err != nil {
+		return nil, err
 	}
 
 	if standings.League.ID == 0 {
@@ -290,4 +244,9 @@ func (ls *LeagueService) GetH2HLeagueStandingsWithContext(ctx context.Context, i
 	}
 
 	return &standings, nil
+}
+
+// leagueNotFound builds the 404 mapping shared by every league lookup.
+func leagueNotFound(id int) func() error {
+	return func() error { return fmt.Errorf("league with ID %d not found: %w", id, ErrLeagueNotFound) }
 }
