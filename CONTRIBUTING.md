@@ -11,7 +11,10 @@ go mod download
 go test ./...
 ```
 
-Use Go `1.23+`.
+Use Go `1.24+`. The minimum supported version is declared in `go.mod`;
+CI and the release workflow test both that minimum and the current stable
+toolchain, so keep `go.mod`'s `go` directive as the single source of truth
+for the floor.
 
 ## Workflow
 

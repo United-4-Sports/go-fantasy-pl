@@ -1,9 +1,23 @@
 name: Release
 
 # Cuts a release by reading the VERSION file: bump VERSION in a PR, merge,
-# and this workflow verifies, tags v<VERSION>, and publishes a GitHub
-# release with generated notes. Re-tagging is skipped when the tag already
-# exists, so merging without a bump is always safe.
+# and this workflow gates the build, tags v<VERSION>, and publishes a
+# GitHub release with generated notes.
+#
+# Publishing decisions live in .github/scripts/release-plan.sh so they can
+# be scenario-tested locally (test-release-plan.sh) instead of verified by
+# running a real release:
+#
+#   tag      release   outcome
+#   absent   -         tag HEAD and publish the release
+#   present  absent    publish the release for the existing tag when the tag
+#                      is HEAD or an ancestor of HEAD (a previous publish
+#                      half-failed); the tagged artifact ships, HEAD is not
+#                      re-tagged
+#   present  present   intentional no-op (merging without a bump)
+#   present, foreign to HEAD's history   fail for human review
+#
+# An existing tag is never moved or re-pointed silently.
 #
 # Tags are only the published form of a release — Go consumers can also pin
 # any untagged commit or branch directly:
@@ -21,29 +35,49 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  verify:
-    name: Verify before tagging
+  toolchain:
+    name: Resolve supported toolchains
     if: github.ref == 'refs/heads/main' # manual dispatches are main-only
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
-    timeout-minutes: 10
+    outputs:
+      versions: ${{ steps.versions.outputs.versions }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
+      - id: versions
+        name: Collect minimum (go.mod) and current Go versions
+        shell: bash
+        run: |
+          min_go="$(awk '$1 == "go" { print $2 }' go.mod)"
+          if ! [[ "$min_go" =~ ^[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Could not parse a go directive from go.mod (got '$min_go')"
+            exit 1
+          fi
+          # A release must build on every toolchain the project claims to
+          # support: the minimum declared in go.mod and current stable.
+          echo "versions=[\"$min_go\",\"stable\"]" >> "$GITHUB_OUTPUT"
 
-      - name: Test
-        run: go test -race ./...
+  gate:
+    name: Publication gate (${{ matrix.go-version }})
+    needs: toolchain
+    if: github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ${{ fromJSON(needs.toolchain.outputs.versions) }}
+    uses: ./.github/workflows/gate.yml
+    permissions:
+      contents: read
+    with:
+      go-version: ${{ matrix.go-version }}
 
   tag:
     name: Tag and publish VERSION
-    needs: verify
+    needs: [toolchain, gate]
     if: github.ref == 'refs/heads/main' # manual dispatches are main-only
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -55,45 +89,32 @@ jobs:
         with:
           fetch-depth: 0 # full history so existing tags are visible
 
-      - id: version
-        name: Read VERSION and check for an existing tag
-        run: |
-          ver="$(tr -d '[:space:]' < VERSION)"
-          if ! [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::VERSION must contain a semver X.Y.Z string, got '$ver'"
-            exit 1
-          fi
-          echo "version=$ver" >> "$GITHUB_OUTPUT"
-          if git rev-parse -q --verify "refs/tags/v$ver" >/dev/null; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "v$ver already tagged, skipping"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
+      - id: plan
+        name: Decide what to publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/release-plan.sh
 
       - name: Push tag
-        if: steps.version.outputs.exists == 'false'
+        if: steps.plan.outputs.decision == 'tag_and_publish'
         env:
-          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_TAG: ${{ steps.plan.outputs.tag }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${RELEASE_VERSION}" -m "go-fantasy-pl v${RELEASE_VERSION}"
-          git push origin "v${RELEASE_VERSION}"
+          git tag -a "$RELEASE_TAG" -m "go-fantasy-pl ${RELEASE_TAG}"
+          git push origin "$RELEASE_TAG"
 
+      # Covers both first publication and recovery for an existing tag;
+      # --verify-tag refuses to invent a tag, and --generate-notes derives
+      # notes from the tag itself, so a recovery ships the tagged artifact.
       - name: Publish GitHub release
-        if: steps.version.outputs.exists == 'false'
+        if: steps.plan.outputs.decision == 'tag_and_publish' || steps.plan.outputs.decision == 'publish_release_for_existing_tag'
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_TAG: ${{ steps.plan.outputs.tag }}
         run: |
-          # Idempotency: if the tag landed but release creation failed, a
-          # re-run must still be able to (re)publish the missing release.
-          if gh release view "v${RELEASE_VERSION}" >/dev/null 2>&1; then
-            echo "release v${RELEASE_VERSION} already exists, skipping"
-            exit 0
-          fi
-          gh release create "v${RELEASE_VERSION}" \
-            --title "v${RELEASE_VERSION}" \
+          gh release create "$RELEASE_TAG" \
+            --title "$RELEASE_TAG" \
             --generate-notes \
             --verify-tag
