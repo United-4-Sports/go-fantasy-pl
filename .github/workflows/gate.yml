@@ -1,0 +1,62 @@
+name: Gate
+
+# The publication gate: the checks a commit must pass before it may be
+# tagged and released. Called by the Release workflow on every supported
+# toolchain; CI runs the same checks (plus coverage and analysis) in its
+# Verify job, so what passed CI is exactly what gates a release.
+
+on:
+  workflow_call:
+    inputs:
+      go-version:
+        description: 'Go version to run on ("stable" allowed)'
+        required: true
+        type: string
+
+jobs:
+  gate:
+    name: Publication gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Go ${{ inputs.go-version }}
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify module files are tidy
+        shell: bash
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Verify module checksums
+        run: go mod verify
+
+      - name: Check formatting
+        shell: bash
+        run: |
+          files="$(gofmt -l .)"
+          if [[ -n "$files" ]]; then
+            echo "The following files are not formatted:"
+            echo "$files"
+            exit 1
+          fi
+
+      - name: Run vet
+        run: go vet ./...
+
+      - name: Run tests
+        run: go test -race -count=1 ./...
+
+      - name: Build
+        run: go build ./...

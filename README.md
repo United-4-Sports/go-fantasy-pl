@@ -22,7 +22,8 @@ A feature-rich, high-performance Go SDK for the official [Fantasy Premier League
 go get github.com/AbdoAnss/go-fantasy-pl
 ```
 
-Requires Go 1.23 or higher.
+Requires Go 1.24 or higher (the minimum is declared in `go.mod`; CI and the
+release workflow additionally gate on the current stable toolchain).
 
 ## Quick Start
 
@@ -222,11 +223,13 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines
 ## Releasing
 
 Releases are driven by the `VERSION` file: bump it in a PR, and the release
-workflow on `main` verifies the suite, pushes the `v<VERSION>` tag, and
-publishes GitHub release notes — no manual tagging. Merging without a bump
-is a no-op. Consumers can also pin untagged commits directly
-(`go get github.com/AbdoAnss/go-fantasy-pl@<ref>` resolves to a
-pseudo-version).
+workflow on `main` runs the publication gate on the minimum and current
+stable Go toolchains, pushes the `v<VERSION>` tag, and publishes GitHub
+release notes — no manual tagging. Merging without a bump is a no-op, and a
+tag whose release half-failed is recovered by publishing the release for
+the tagged commit; existing tags are never moved. Consumers can also pin
+untagged commits directly (`go get github.com/AbdoAnss/go-fantasy-pl@<ref>`
+resolves to a pseudo-version).
 
 ## License
 
