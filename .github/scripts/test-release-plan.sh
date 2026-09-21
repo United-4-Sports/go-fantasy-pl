@@ -10,6 +10,7 @@
 #   4. tag and release both exist              -> noop
 #   5. tag on a foreign commit, no release     -> refusal (exit 2)
 #   6. malformed VERSION                       -> refusal (exit 1)
+#   7. release lookup fails (auth/API outage)  -> refusal (exit 3, no decision)
 set -eu
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -18,16 +19,26 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 out_file="$work/out"
 
-# Stub gh: `release view` answers from FAKE_RELEASE_EXISTS; any other
-# invocation (e.g. `release create`) is recorded to FAKE_GH_LOG and fails
-# the test — the plan script must never publish by itself.
+# Stub gh: `release view` answers from FAKE_RELEASE_EXISTS, mirroring real
+# gh error strings (verified against gh 2.98: not-found prints "release
+# not found"; auth failures print "non-200 OK status code: 401...").
+# FAKE_GH_MODE=outage simulates an API/auth failure that is NOT a missing
+# release. Any other invocation (e.g. `release create`) is recorded to
+# FAKE_GH_LOG and fails the test — the plan script must never publish.
 bin="$work/bin"
 mkdir -p "$bin"
 cat >"$bin/gh" <<'STUB'
 #!/bin/sh
 if [ "$1" = "release" ] && [ "$2" = "view" ]; then
-  [ "${FAKE_RELEASE_EXISTS:-0}" = "1" ]
-  exit $?
+  if [ "${FAKE_GH_MODE:-}" = "outage" ]; then
+    echo "non-200 OK status code: 502 Service Unavailable" >&2
+    exit 1
+  fi
+  if [ "${FAKE_RELEASE_EXISTS:-0}" = "1" ]; then
+    exit 0
+  fi
+  echo "release not found" >&2
+  exit 1
 fi
 printf '%s\n' "$*" >>"${FAKE_GH_LOG:?}"
 echo "unexpected gh invocation: $*" >&2
@@ -68,14 +79,15 @@ new_repo() { # new_repo <dir> <version>
   )
 }
 
-run_plan() { # run_plan <repo-dir> [release_exists:0|1]; exit code lands in STATUS
+run_plan() { # run_plan <repo-dir> [release_exists:0|1] [gh_mode]; exit code lands in STATUS
   STATUS=0
   (
     cd "$1"
     PATH="$bin:$PATH"
     FAKE_GH_LOG="$work/gh.log"
     FAKE_RELEASE_EXISTS="${2:-0}"
-    export PATH FAKE_GH_LOG FAKE_RELEASE_EXISTS
+    FAKE_GH_MODE="${3:-}"
+    export PATH FAKE_GH_LOG FAKE_RELEASE_EXISTS FAKE_GH_MODE
     sh "$plan" 2>/dev/null
   ) >"$out_file" || STATUS=$?
 }
@@ -127,6 +139,15 @@ assert_eq "case5 emits no decision" "" "$(field decision)"
 r="$work/case6"; new_repo "$r" next
 run_plan "$r"
 assert_eq "case6 exit code" 1 "$STATUS"
+
+# 7. Release lookup fails with a non-404 error (auth/API outage): an
+#    unknown release state must abort without a decision — never treated
+#    as a missing release that triggers a recovery publish.
+r="$work/case7"; new_repo "$r" 1.6.0
+git -C "$r" tag -a v1.6.0 -m fixture
+run_plan "$r" 0 outage
+assert_eq "case7 exit code" 3 "$STATUS"
+assert_eq "case7 emits no decision" "" "$(field decision)"
 
 # The plan must be read-only: no gh write invocation in any scenario.
 assert_eq "no gh write invocations" "" "$(cat "$work/gh.log" 2>/dev/null || true)"

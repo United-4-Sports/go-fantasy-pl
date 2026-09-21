@@ -12,6 +12,9 @@
 #   present  present   noop: intentional no-op for merges without a bump
 #   present  absent    exit 2 when the tag is foreign to HEAD's history: a
 #                      human must decide; existing tags are never moved
+#   release lookup fails (auth, network, non-404 API error):
+#                      exit 3 with no decision — an unknown release state
+#                      must never be treated as "missing"
 #
 # Emits key=value lines to $GITHUB_OUTPUT (or stdout when unset) and human
 # logs to stderr. Validate changes with test-release-plan.sh, which drives
@@ -47,9 +50,27 @@ if git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1; then
   tag_exists=true
 fi
 
+# `gh release view` uses exit 1 both for a missing release and for auth,
+# network, and API failures, so the message is the discriminator. Only a
+# confirmed not-found response may count as absent; anything else is an
+# unknown state and must stop the workflow rather than risk a bogus
+# recovery publish. Verified against gh 2.98: not-found prints
+# "release not found"; auth failures print "non-200 OK status code: 401...".
+release_lookup_err="$(gh release view "$tag" 2>&1 >/dev/null)" && gh_status=0 || gh_status=$?
 release_exists=false
-if gh release view "$tag" >/dev/null 2>&1; then
+if [ "$gh_status" -eq 0 ]; then
   release_exists=true
+else
+  lookup_lower="$(printf '%s' "$release_lookup_err" | tr '[:upper:]' '[:lower:]')"
+  case "$lookup_lower" in
+    *"release not found"*|*"http 404"*)
+      release_exists=false
+      ;;
+    *)
+      log "::error::Release lookup for $tag failed (gh exit $gh_status): $release_lookup_err"
+      exit 3
+      ;;
+  esac
 fi
 
 if [ "$tag_exists" = false ]; then
