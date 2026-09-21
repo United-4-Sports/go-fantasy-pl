@@ -132,10 +132,7 @@ func throttleable(statusCode int) bool {
 // backoff computes the exponential delay for the nth retry of a class,
 // randomized to [0.5x, 1.5x) of the nominal value and capped at max.
 func backoff(base, max time.Duration, retryN int, jitter func() float64) time.Duration {
-	shift := retryN - 1
-	if shift > 30 {
-		shift = 30
-	}
+	shift := min(retryN-1, 30)
 	nominal := base << shift // << on Duration shifts nanoseconds; overflow goes negative
 	if nominal <= 0 || nominal > max {
 		nominal = max
@@ -165,10 +162,7 @@ func parseRetryAfter(h http.Header, now time.Time) (d time.Duration, ok bool) {
 		return time.Duration(secs) * time.Second, true
 	}
 	if date, err := http.ParseTime(v); err == nil {
-		delay := date.Sub(now)
-		if delay < 0 {
-			delay = 0
-		}
+		delay := max(date.Sub(now), 0)
 		return delay, true
 	}
 	return 0, false
