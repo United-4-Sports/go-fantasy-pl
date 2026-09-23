@@ -15,6 +15,9 @@ const (
 	defaultBaseBackoff   = 500 * time.Millisecond
 	defaultMaxBackoff    = 8 * time.Second
 	defaultRetryAfterCap = 2 * time.Minute
+
+	maxRetryAfterDuration = time.Duration(1<<63 - 1)
+	maxRetryAfterSeconds  = uint64(maxRetryAfterDuration / time.Second)
 )
 
 // ThrottlePolicy controls the client's automatic handling of throttled
@@ -118,6 +121,8 @@ type ThrottleEvent struct {
 	// after jitter and caps. Zero when WillRetry is false.
 	Wait time.Duration
 	// RetryAfter is the parsed Retry-After value the server sent, if any.
+	// Numeric values too large to represent as a time.Duration are saturated
+	// to the maximum time.Duration (MaxInt64 nanoseconds).
 	RetryAfter time.Duration
 	// WillRetry is false when the retry budget for this status class is
 	// exhausted and the throttled response is being surfaced to the caller.
@@ -149,15 +154,17 @@ func backoff(base, max time.Duration, retryN int, jitter func() float64) time.Du
 
 // parseRetryAfter parses the Retry-After header in both wire formats:
 // delay-seconds and HTTP-date (resolved relative to now). Past dates
-// resolve to zero. ok is false when the header is absent or unparseable.
+// resolve to zero. Numeric values that exceed time.Duration are saturated
+// to its maximum value. ok is false when the header is absent or unparseable.
 func parseRetryAfter(h http.Header, now time.Time) (d time.Duration, ok bool) {
 	v := h.Get("Retry-After")
 	if v == "" {
 		return 0, false
 	}
-	if secs, err := strconv.Atoi(v); err == nil {
-		if secs < 0 {
-			secs = 0
+	if decimalDigits(v) {
+		secs, err := strconv.ParseUint(v, 10, 64)
+		if err != nil || secs > maxRetryAfterSeconds {
+			return maxRetryAfterDuration, true
 		}
 		return time.Duration(secs) * time.Second, true
 	}
@@ -166,6 +173,22 @@ func parseRetryAfter(h http.Header, now time.Time) (d time.Duration, ok bool) {
 		return delay, true
 	}
 	return 0, false
+}
+
+// decimalDigits reports whether v is a non-empty sequence of ASCII digits.
+// ParseUint can report ErrRange before it examines a later invalid byte, so
+// validate the complete wire value before treating a range error as numeric
+// overflow.
+func decimalDigits(v string) bool {
+	if v == "" {
+		return false
+	}
+	for i := 0; i < len(v); i++ {
+		if v[i] < '0' || v[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // waitThrottle sleeps for d, aborting promptly when ctx is cancelled.

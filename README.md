@@ -201,6 +201,8 @@ occasional 429s. The client handles both automatically and is on by default:
 
 - **429**: the `Retry-After` header (delay-seconds or HTTP-date) is waited out exactly — capped at
   2 minutes — and the request is retried once. Without the header, exponential backoff applies.
+  Numeric values too large for `time.Duration` are saturated to MaxInt64 nanoseconds before the cap;
+  observer events report the saturated `RetryAfter` and the capped `Wait`.
 - **403**: treated as throttling; exponential backoff with ±50% jitter — 500ms, then 1s — for up
   to two retries, then the response is surfaced to the caller.
 

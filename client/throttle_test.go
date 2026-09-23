@@ -403,6 +403,41 @@ func TestThrottleRetryAfterCapped(t *testing.T) {
 	require.Equal(t, []time.Duration{2 * time.Minute}, rec.recorded())
 }
 
+func TestThrottleInvalidRetryAfterUsesBackoff(t *testing.T) {
+	server, hits := scriptedServer(t, step{status: 429, retryAfter: "-5"}, step{status: 200})
+	c, rec := newThrottleTestClient(t, server)
+	var event ThrottleEvent
+	c.throttleObserver = func(e ThrottleEvent) { event = e }
+
+	resp, err := c.Get("/bootstrap-static/")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, int32(2), hits.Load())
+	require.Equal(t, []time.Duration{500 * time.Millisecond}, rec.recorded())
+	assert.Equal(t, 500*time.Millisecond, event.Wait)
+	assert.Zero(t, event.RetryAfter, "an invalid header must not be reported as a valid value")
+}
+
+func TestThrottleOversizedRetryAfterSaturatesAndCaps(t *testing.T) {
+	server, hits := scriptedServer(t,
+		step{status: 429, retryAfter: "9223372036854775807"},
+		step{status: 200},
+	)
+	c, rec := newThrottleTestClient(t, server)
+	var event ThrottleEvent
+	c.throttleObserver = func(e ThrottleEvent) { event = e }
+
+	resp, err := c.Get("/bootstrap-static/")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, int32(2), hits.Load())
+	require.Equal(t, []time.Duration{2 * time.Minute}, rec.recorded())
+	assert.Equal(t, maxRetryAfterDuration, event.RetryAfter)
+	assert.Equal(t, 2*time.Minute, event.Wait)
+}
+
 func TestParseRetryAfter(t *testing.T) {
 	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
 	header := func(v string) http.Header {
@@ -422,7 +457,19 @@ func TestParseRetryAfter(t *testing.T) {
 		{"absent", "", 0, false},
 		{"seconds", "30", 30 * time.Second, true},
 		{"zero", "0", 0, true},
-		{"negative clamps", "-5", 0, true},
+		{"negative one", "-1", 0, false},
+		{"negative five", "-5", 0, false},
+		{"largest safe whole second", "9223372036", time.Duration(9223372036) * time.Second, true},
+		{"duration overflow threshold", "9223372037", maxRetryAfterDuration, true},
+		{"max int64", "9223372036854775807", maxRetryAfterDuration, true},
+		{"max int64 plus one", "9223372036854775808", maxRetryAfterDuration, true},
+		{"max uint64", "18446744073709551615", maxRetryAfterDuration, true},
+		{"above max uint64", "18446744073709551616", maxRetryAfterDuration, true},
+		{"range error with suffix", "18446744073709551616x", 0, false},
+		{"decimal", "1.5", 0, false},
+		{"leading whitespace", " 1", 0, false},
+		{"trailing whitespace", "1 ", 0, false},
+		{"signed positive", "+1", 0, false},
 		{"http date future", "Mon, 21 Sep 2026 12:00:02 GMT", 2 * time.Second, true},
 		{"http date past", "Mon, 21 Sep 2026 11:59:58 GMT", 0, true},
 		{"garbage", "soon", 0, false},
