@@ -71,16 +71,20 @@ func (ls *LeagueService) GetClassicLeagueStandingsWithContext(ctx context.Contex
 	store := cacheFor(ls.client)
 	// Only cache first few pages to prevent memory bloat
 	useCache := page <= maxPageCache
-	var league models.ClassicLeague
 
 	if useCache {
 		cacheKey := fmt.Sprintf("classic_league_%d_page_%d", id, page)
-		if hit, err := cacheGet(ctx, ls.client, store, cacheKey, &league); err != nil {
+		// Keep the cache destination separate: a decode error may partially
+		// populate it before the best-effort fallback to the network.
+		var cached models.ClassicLeague
+		if hit, err := cacheGet(ctx, ls.client, store, cacheKey, &cached); err != nil {
 			return nil, err
 		} else if hit {
-			return &league, nil
+			return &cached, nil
 		}
 	}
+
+	var league models.ClassicLeague
 
 	if err := fetchJSON(ctx, ls.client, fmt.Sprintf(classicLeagueEndpoint, id, page), fetchSpec{
 		fetch:    "failed to get league standings",
