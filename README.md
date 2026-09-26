@@ -194,6 +194,39 @@ interval. Both arguments must be positive or `NewClient` returns an error. `GetC
 waits via its context without consuming a token; `WithTimeout` bounds only the HTTP request. Limits are
 per client — reuse one long-lived client instead of creating one per request.
 
+### Throttle handling (403/429)
+
+The FPL API has no published rate limits; heavy clients get heuristic temporary 403 blocks and
+occasional 429s. The client handles both automatically and is on by default:
+
+- **429**: the `Retry-After` header (delay-seconds or HTTP-date) is waited out exactly — capped at
+  2 minutes — and the request is retried once. Without the header, exponential backoff applies.
+  Numeric values too large for `time.Duration` are saturated to MaxInt64 nanoseconds before the cap;
+  observer events report the saturated `RetryAfter` and the capped `Wait`.
+- **403**: treated as throttling; exponential backoff with ±50% jitter — 500ms, then 1s — for up
+  to two retries, then the response is surfaced to the caller.
+
+All waits are cancellable through the request context, every retry passes through the rate limiter
+(retries consume tokens), and non-throttle statuses (404, 5xx, …) reach callers on the first
+attempt with unchanged error shapes. Tune or disable with `WithThrottlePolicy`; the zero value
+keeps the defaults and `-1` disables one status class:
+
+```go
+c, err := client.NewClient(
+	client.WithThrottlePolicy(client.ThrottlePolicy{
+		Max403Retries: 4,             // more patience with 403 blocks
+		Max429Retries: -1,            // never retry 429s
+	}),
+	client.WithThrottleObserver(func(e client.ThrottleEvent) {
+		// nonblocking metering: e.Endpoint, e.StatusCode, e.Attempt,
+		// e.Wait, e.RetryAfter, e.WillRetry — never response bodies
+	}),
+)
+```
+
+`ThrottlePolicy{Disabled: true}` restores pre-throttle single-attempt behavior, which hermetic
+tests and replay upstreams may prefer.
+
 ## CI/CD
 
 The GitHub Actions pipeline now covers:
