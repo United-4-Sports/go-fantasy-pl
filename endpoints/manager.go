@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/AbdoAnss/go-fantasy-pl/api"
@@ -61,28 +60,12 @@ func (ms *ManagerService) GetManagerWithContext(ctx context.Context, id int) (*m
 		return &manager, nil
 	}
 
-	endpoint := fmt.Sprintf(managerDetailsEndpoint, id)
-	resp, err := ms.client.GetContext(ctx, endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get manager data: %w", err)
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-	case http.StatusNotFound:
-		return nil, fmt.Errorf("manager with ID %d not found", id)
-	default:
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if err := json.Unmarshal(body, &manager); err != nil {
-		return nil, fmt.Errorf("failed to decode manager data: %w", err)
+	if err := fetchJSON(ctx, ms.client, fmt.Sprintf(managerDetailsEndpoint, id), fetchSpec{
+		fetch:    "failed to get manager data",
+		decode:   "failed to decode manager data",
+		notFound: func() error { return fmt.Errorf("manager with ID %d not found", id) },
+	}, &manager); err != nil {
+		return nil, err
 	}
 
 	if err := ms.validateManager(&manager); err != nil {
@@ -165,28 +148,12 @@ func (ms *ManagerService) GetManagerHistoryWithContext(ctx context.Context, id i
 		return &managerHistory, nil
 	}
 
-	endpoint := fmt.Sprintf(managerHistoryEndpoint, id)
-	resp, err := ms.client.GetContext(ctx, endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get manager history data: %w", err)
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-	case http.StatusNotFound:
-		return nil, fmt.Errorf("manager with ID %d not found", id)
-	default:
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if err := json.Unmarshal(body, &managerHistory); err != nil {
-		return nil, fmt.Errorf("failed to decode manager data: %w", err)
+	if err := fetchJSON(ctx, ms.client, fmt.Sprintf(managerHistoryEndpoint, id), fetchSpec{
+		fetch:    "failed to get manager history data",
+		decode:   "failed to decode manager data",
+		notFound: func() error { return fmt.Errorf("manager with ID %d not found", id) },
+	}, &managerHistory); err != nil {
+		return nil, err
 	}
 
 	if err := cacheSet(ctx, ms.client, store, cacheKey, &managerHistory, managerCacheTTL); err != nil {

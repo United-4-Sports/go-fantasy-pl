@@ -2,10 +2,7 @@ package endpoints
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"time"
 
 	"github.com/AbdoAnss/go-fantasy-pl/api"
@@ -71,28 +68,13 @@ func (ls *LiveService) GetEventLiveWithContext(ctx context.Context, eventID int)
 		return &live, nil
 	}
 
-	endpoint := fmt.Sprintf(eventLiveEndpoint, eventID)
-	resp, err := ls.client.GetContext(ctx, endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get event live data: %w", err)
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-	case http.StatusNotFound:
-		return nil, &EventLiveNotFoundError{EventID: eventID}
-	default:
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read event live response: %w", err)
-	}
-
-	if err := json.Unmarshal(body, &live); err != nil {
-		return nil, fmt.Errorf("failed to decode event live data: %w", err)
+	if err := fetchJSON(ctx, ls.client, fmt.Sprintf(eventLiveEndpoint, eventID), fetchSpec{
+		fetch:    "failed to get event live data",
+		read:     "failed to read event live response",
+		decode:   "failed to decode event live data",
+		notFound: func() error { return &EventLiveNotFoundError{EventID: eventID} },
+	}, &live); err != nil {
+		return nil, err
 	}
 
 	if live.Elements == nil {
