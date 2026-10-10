@@ -34,6 +34,10 @@ type Client struct {
 	cacheSet          bool
 	cache             cache.Cache   // retained selection; shared storage is independent of selection
 	redisOptions      *RedisOptions // deferred owned pool construction
+	throttle          ThrottlePolicy
+	throttleObserver  func(ThrottleEvent)                        // nil unless WithThrottleObserver
+	throttleSleep     func(context.Context, time.Duration) error // test seam; real waits are cancellable
+	throttleJitter    func() float64                             // test seam for backoff jitter
 
 	// Ownership: Close releases only these. Caller-supplied pools, caches and
 	// transports are never closed, and shared stores are never cleared.
@@ -77,6 +81,11 @@ func NewClient(opts ...Option) (*Client, error) {
 		},
 		baseURL:   baseURL,
 		rateLimit: newRateLimiter(50, time.Minute),
+		throttle:  DefaultThrottlePolicy(),
+		throttleSleep: func(ctx context.Context, d time.Duration) error {
+			return waitThrottle(ctx, d)
+		},
+		throttleJitter: jitterFraction,
 		// The transport above belongs to this client; WithHTTPClient clears this.
 		ownsHTTPTransport: true,
 	}
@@ -212,19 +221,91 @@ func (c *Client) GetRawContext(ctx context.Context, endpoint string) ([]byte, er
 
 // GetContext performs a rate-limited GET request with a context to the specified endpoint.
 // The context bounds both the limiter wait and HTTP request; WithTimeout only
-// bounds the HTTP request.
+// bounds the HTTP request. Throttled responses (429, throttle-suspected 403)
+// are retried with backoff per the client's ThrottlePolicy — see
+// WithThrottlePolicy. A nil context uses Background.
 func (c *Client) GetContext(ctx context.Context, endpoint string) (*http.Response, error) {
-	if err := c.rateLimit.Wait(ctx); err != nil {
-		return nil, fmt.Errorf("rate limit wait failed: %w", err)
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	url := c.baseURL + endpoint
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	policy := c.throttle.resolved()
+	budget := map[int]int{
+		http.StatusTooManyRequests: policy.Max429Retries,
+		http.StatusForbidden:       policy.Max403Retries,
 	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+	attempts := map[int]int{}
+	attempt := 0
+
+	for {
+		if err := c.rateLimit.Wait(ctx); err != nil {
+			return nil, fmt.Errorf("rate limit wait failed: %w", err)
+		}
+		url := c.baseURL + endpoint
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("request failed: %w", err)
+		}
+		attempt++
+
+		if policy.Disabled || !throttleable(resp.StatusCode) {
+			return resp, nil
+		}
+
+		// Non-retryable for this status class: surface the response exactly
+		// as callers saw it before throttle handling existed.
+		retriesLeft := budget[resp.StatusCode] - attempts[resp.StatusCode]
+		if retriesLeft <= 0 {
+			c.emitThrottle(ThrottleEvent{
+				Endpoint: endpoint, StatusCode: resp.StatusCode, Attempt: attempt,
+				RetryAfter: retryAfterOf(resp), WillRetry: false,
+			})
+			return resp, nil
+		}
+
+		attempts[resp.StatusCode]++
+		wait, retryAfter := c.throttleWait(resp, attempts[resp.StatusCode], policy)
+		c.emitThrottle(ThrottleEvent{
+			Endpoint: endpoint, StatusCode: resp.StatusCode, Attempt: attempt,
+			Wait: wait, RetryAfter: retryAfter, WillRetry: true,
+		})
+
+		// The attempt is over: drain a bounded prefix so the connection can
+		// be reused, then close the body before waiting.
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 8192))
+		_ = resp.Body.Close()
+
+		if err := c.throttleSleep(ctx, wait); err != nil {
+			return nil, fmt.Errorf("throttle backoff on %s: %w", endpoint, err)
+		}
 	}
-	return resp, nil
+}
+
+// throttleWait computes the delay before the retryN-th retry of this
+// status class: a server-provided Retry-After (capped) for 429s, otherwise
+// jittered exponential backoff.
+func (c *Client) throttleWait(resp *http.Response, retryN int, policy ThrottlePolicy) (wait, retryAfter time.Duration) {
+	if resp.StatusCode == http.StatusTooManyRequests {
+		if ra, ok := parseRetryAfter(resp.Header, time.Now()); ok {
+			wait = min(ra, policy.RetryAfterCap)
+			return wait, ra
+		}
+	}
+	return backoff(policy.BaseBackoff, policy.MaxBackoff, retryN, c.throttleJitter), 0
+}
+
+// retryAfterOf parses Retry-After for event reporting; absent or invalid
+// headers report as zero.
+func retryAfterOf(resp *http.Response) time.Duration {
+	ra, _ := parseRetryAfter(resp.Header, time.Now())
+	return ra
+}
+
+func (c *Client) emitThrottle(e ThrottleEvent) {
+	if c.throttleObserver != nil {
+		c.throttleObserver(e)
+	}
 }

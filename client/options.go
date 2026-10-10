@@ -69,6 +69,31 @@ func WithRateLimit(requests int, interval time.Duration) Option {
 	}
 }
 
+// WithThrottlePolicy replaces the client's throttled-response handling
+// (429 and throttle-suspected 403 backoff). The zero-value policy applies
+// the documented defaults, so callers only set the fields they want to
+// change; ThrottlePolicy{Disabled: true} restores pre-throttle-handling
+// behavior, which tests and replay upstreams may want. The final throttle
+// policy option wins.
+func WithThrottlePolicy(p ThrottlePolicy) Option {
+	return func(c *Client) {
+		c.throttle = p
+	}
+}
+
+// WithThrottleObserver installs a callback invoked once per throttled
+// response, whether the client retries or surfaces the response. The
+// callback runs synchronously on the request path: it must be
+// concurrency-safe and nonblocking, and it never receives response bodies
+// — only status, attempt, and timing facts (see ThrottleEvent). Passing
+// nil removes a previously installed observer. The final observer option
+// wins.
+func WithThrottleObserver(fn func(ThrottleEvent)) Option {
+	return func(c *Client) {
+		c.throttleObserver = fn
+	}
+}
+
 // WithRedisCache configures the client to use its own Redis-backed distributed
 // cache, selected at construction and retained for this client's lifetime.
 // Entries are shared across SDK clients using the same Redis DB and key
