@@ -4,7 +4,9 @@
 package client
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +22,14 @@ const (
 	baseURL = "https://fantasy.premierleague.com/api"
 	// defaultTimeout is the default HTTP timeout used if none is specified.
 	defaultTimeout = 10 * time.Second
+
+	// maintenanceMarker is the body the FPL API returns with HTTP 503 while
+	// the game is being updated between gameweeks.
+	maintenanceMarker = "The game is being updated."
+	// maintenanceProbeLimit bounds how much of a 503 body is read while
+	// looking for the maintenance marker. The real body is a short JSON
+	// string, so this is generous.
+	maintenanceProbeLimit = 512
 )
 
 // Client is the main SDK client used to interact with the FPL API.
@@ -189,6 +199,58 @@ func (e *StatusError) Error() string {
 	return fmt.Sprintf("unexpected status code fetching %s: %d", e.Endpoint, e.StatusCode)
 }
 
+// MaintenanceError reports that the FPL API answered with its scheduled
+// maintenance response ("The game is being updated.", HTTP 503). It is a typed
+// error so callers can treat a maintenance window as a transient upstream
+// condition rather than a real failure — for example, a live conformance run
+// can skip instead of reporting schema drift.
+type MaintenanceError struct {
+	// Endpoint is the API path that was requested.
+	Endpoint string
+	// StatusCode is the status the API returned for the maintenance response.
+	StatusCode int
+}
+
+func (e *MaintenanceError) Error() string {
+	return fmt.Sprintf("FPL API is being updated (status %d) fetching %s", e.StatusCode, e.Endpoint)
+}
+
+// IsMaintenance reports whether err, or anything it wraps, is the FPL API's
+// scheduled-maintenance response. See MaintenanceError.
+func IsMaintenance(err error) bool {
+	var m *MaintenanceError
+	return errors.As(err, &m)
+}
+
+// maintenanceError returns a *MaintenanceError when resp carries the FPL
+// maintenance response and nil otherwise. A non-maintenance response keeps its
+// body readable by the caller.
+func maintenanceError(endpoint string, resp *http.Response) error {
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		return nil
+	}
+
+	orig := resp.Body
+	body, readErr := io.ReadAll(io.LimitReader(orig, maintenanceProbeLimit))
+	// Re-attach what was probed so a non-maintenance 503 still reaches the
+	// caller with its body intact — and still closes the real body exactly
+	// once, which is what connection reuse depends on.
+	resp.Body = &probeBody{Reader: io.MultiReader(bytes.NewReader(body), orig), closer: orig}
+	if readErr != nil || !bytes.Contains(body, []byte(maintenanceMarker)) {
+		return nil
+	}
+	return &MaintenanceError{Endpoint: endpoint, StatusCode: resp.StatusCode}
+}
+
+// probeBody reattaches bytes read while probing a response body while
+// delegating Close to the original body, so it is closed exactly once.
+type probeBody struct {
+	io.Reader
+	closer io.Closer
+}
+
+func (b *probeBody) Close() error { return b.closer.Close() }
+
 // GetRaw performs a rate-limited GET request and returns the undecoded
 // response body. It is used by the live conformance harness to validate
 // models against the exact payload the API returned.
@@ -250,6 +312,14 @@ func (c *Client) GetContext(ctx context.Context, endpoint string) (*http.Respons
 			return nil, fmt.Errorf("request failed: %w", err)
 		}
 		attempt++
+
+		// A scheduled maintenance window is an upstream condition, not a
+		// response callers should try to parse: surface it as a typed error so
+		// it can be told apart from real failures and schema drift.
+		if maintErr := maintenanceError(endpoint, resp); maintErr != nil {
+			_ = resp.Body.Close()
+			return nil, maintErr
+		}
 
 		if policy.Disabled || !throttleable(resp.StatusCode) {
 			return resp, nil

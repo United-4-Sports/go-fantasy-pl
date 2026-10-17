@@ -185,6 +185,67 @@ func TestGetRaw_NetworkErrorFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "request failed")
 }
 
+// maintenanceServer answers every request with the FPL maintenance response.
+func maintenanceServer() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`"The game is being updated."`))
+	}))
+}
+
+func TestGetRaw_MaintenanceResponseIsTyped(t *testing.T) {
+	server := maintenanceServer()
+	defer server.Close()
+
+	c, err := NewClient(WithBaseURL(server.URL), WithMemoryCache())
+	require.NoError(t, err)
+
+	body, err := c.GetRaw("/entry/1/history")
+	assert.Nil(t, body)
+	require.Error(t, err)
+	assert.True(t, IsMaintenance(err), "maintenance body should be typed, got: %v", err)
+
+	var maintErr *MaintenanceError
+	require.ErrorAs(t, err, &maintErr)
+	assert.Equal(t, "/entry/1/history", maintErr.Endpoint)
+	assert.Equal(t, http.StatusServiceUnavailable, maintErr.StatusCode)
+}
+
+func TestGet_MaintenanceResponseIsTyped(t *testing.T) {
+	server := maintenanceServer()
+	defer server.Close()
+
+	c, err := NewClient(WithBaseURL(server.URL), WithMemoryCache())
+	require.NoError(t, err)
+
+	resp, err := c.Get("/bootstrap-static/")
+	assert.Nil(t, resp)
+	require.Error(t, err)
+	assert.True(t, IsMaintenance(err), "Get should also surface maintenance, got: %v", err)
+}
+
+func TestGetRaw_NonMaintenance503StaysStatusError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"detail":"unavailable"}`))
+	}))
+	defer server.Close()
+
+	c, err := NewClient(WithBaseURL(server.URL), WithMemoryCache())
+	require.NoError(t, err)
+
+	body, err := c.GetRaw("/bootstrap-static/")
+	assert.Nil(t, body)
+	require.Error(t, err)
+	assert.False(t, IsMaintenance(err), "a non-maintenance 503 must not be treated as maintenance")
+
+	var statusErr *StatusError
+	require.ErrorAs(t, err, &statusErr)
+	assert.Equal(t, http.StatusServiceUnavailable, statusErr.StatusCode)
+}
+
 func TestRateLimitOptionValidationAndOrdering(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

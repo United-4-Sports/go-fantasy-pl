@@ -106,19 +106,19 @@ func (w *liveWalk) checkBootstrap(t *testing.T) {
 
 	// Library behavior.
 	teams, err := w.c.Bootstrap.GetTeams()
-	require.NoError(t, err)
+	requireLive(t, err)
 	assert.NotEmpty(t, teams)
 
 	players, err := w.c.Bootstrap.GetPlayers()
-	require.NoError(t, err)
+	requireLive(t, err)
 	assert.NotEmpty(t, players)
 
 	gameweeks, err := w.c.Bootstrap.GetGameWeeks()
-	require.NoError(t, err)
+	requireLive(t, err)
 	assert.NotEmpty(t, gameweeks)
 
 	settings, err := w.c.Bootstrap.GetSettings()
-	require.NoError(t, err)
+	requireLive(t, err)
 	assert.NotNil(t, settings)
 
 	if w.recapture {
@@ -137,11 +137,11 @@ func (w *liveWalk) checkFixtures(t *testing.T) {
 
 	// Library behavior.
 	all, err := w.c.Fixtures.GetAllFixtures()
-	require.NoError(t, err)
+	requireLive(t, err)
 	assert.NotEmpty(t, all)
 
 	first, err := w.c.Fixtures.GetFixture(fixtures[0].ID)
-	require.NoError(t, err)
+	requireLive(t, err)
 	assert.Equal(t, fixtures[0].ID, first.ID, "returned fixture should echo the requested ID")
 
 	if w.recapture {
@@ -171,11 +171,11 @@ func (w *liveWalk) checkPlayer(t *testing.T, id int) {
 
 	// Library behavior.
 	h, err := w.c.Players.GetPlayerHistory(id)
-	require.NoError(t, err)
+	requireLive(t, err)
 	assert.NotNil(t, h)
 
 	p, err := w.c.Players.GetPlayer(id)
-	require.NoError(t, err)
+	requireLive(t, err)
 	assert.Equal(t, id, p.ID, "returned player should echo the requested ID")
 
 	if w.recapture {
@@ -185,14 +185,14 @@ func (w *liveWalk) checkPlayer(t *testing.T, id int) {
 
 func (w *liveWalk) checkTeams(t *testing.T) {
 	teams, err := w.c.Bootstrap.GetTeams()
-	require.NoError(t, err)
+	requireLive(t, err)
 	require.NotEmpty(t, teams)
 
 	// Sample three teams; IDs are dense 1-20 every season.
 	sample := min(len(teams), 3)
 	for _, tm := range teams[:sample] {
 		got, err := w.c.Teams.GetTeam(tm.ID)
-		require.NoError(t, err)
+		requireLive(t, err)
 		assert.Equal(t, tm.ID, got.ID, "returned team should echo the requested ID")
 	}
 }
@@ -204,6 +204,7 @@ func (w *liveWalk) checkManager(t *testing.T, id int) {
 	if isStalePayload(t, rawErr) {
 		t.Skipf("manager %d no longer exists on the live API", id)
 	}
+	skipIfUpstreamUnavailable(t, rawErr)
 	require.NoError(t, rawErr)
 	require.NotEmpty(t, raw)
 
@@ -216,6 +217,7 @@ func (w *liveWalk) checkManager(t *testing.T, id int) {
 	if isStaleID(t, err) {
 		t.Skipf("manager %d no longer exists on the live API", id)
 	}
+	skipIfUpstreamUnavailable(t, err)
 	require.NoError(t, err)
 	require.NotNil(t, m.ID)
 	assert.Equal(t, id, *m.ID, "returned manager should echo the requested ID")
@@ -227,14 +229,14 @@ func (w *liveWalk) checkManager(t *testing.T, id int) {
 	conformance.Check(t, histRaw, conformance.Spec{Model: &managerHistory})
 
 	_, err = w.c.Managers.GetManagerHistory(id)
-	require.NoError(t, err)
+	requireLive(t, err)
 
 	// Current team only exists once a gameweek is in progress.
 	if w.currentGameweek == 0 {
 		t.Skip("no current gameweek yet; skipping picks checks")
 	}
 	team, err := w.c.Managers.GetCurrentTeam(id)
-	require.NoError(t, err)
+	requireLive(t, err)
 	assert.NotEmpty(t, team.Picks)
 }
 
@@ -245,7 +247,7 @@ func (w *liveWalk) checkClassicLeague(t *testing.T, id int) {
 	if isStaleID(t, err) {
 		t.Skipf("classic league %d no longer exists on the live API", id)
 	}
-	require.NoError(t, err)
+	requireLive(t, err)
 
 	raw := mustGetRaw(t, w.c, fmt.Sprintf("/leagues-classic/%d/standings/?page_standings=1", id))
 
@@ -267,7 +269,7 @@ func (w *liveWalk) checkH2HLeague(t *testing.T, id int) {
 	if isStaleID(t, err) {
 		t.Skipf("H2H league %d no longer exists on the live API", id)
 	}
-	require.NoError(t, err)
+	requireLive(t, err)
 	require.NotNil(t, feed)
 
 	raw := mustGetRaw(t, w.c, fmt.Sprintf("/leagues-h2h-matches/league/%d/?page=1", id))
@@ -282,7 +284,7 @@ func (w *liveWalk) checkH2HLeague(t *testing.T, id int) {
 
 		// Event filtering invariant.
 		filtered, err := w.c.Leagues.GetH2HLeagueMatches(id, 1, 1)
-		require.NoError(t, err)
+		requireLive(t, err)
 		for _, m := range filtered.Results {
 			assert.Equal(t, 1, m.Event, "filtered feed must only contain the requested gameweek")
 		}
@@ -318,7 +320,7 @@ func (w *liveWalk) checkLive(t *testing.T) {
 	// can straddle a goal/bonus update mid-match, so cross-fetch equality
 	// would be a race, not an invariant.
 	got, err := w.c.Live.GetEventLive(eventID)
-	require.NoError(t, err)
+	requireLive(t, err)
 	require.Len(t, got.Elements, len(live.Elements))
 
 	first := got.Elements[0].ID
@@ -329,6 +331,7 @@ func (w *liveWalk) checkLive(t *testing.T) {
 
 	// Out-of-range gameweeks produce the typed domain error.
 	_, err = w.c.Live.GetEventLive(999)
+	skipIfUpstreamUnavailable(t, err)
 	var notFound *endpoints.EventLiveNotFoundError
 	assert.ErrorAs(t, err, &notFound)
 
@@ -369,16 +372,20 @@ func (w *liveWalk) checkLiveExplainSums(t *testing.T, live models.EventLive) {
 
 func (w *liveWalk) checkNotFound(t *testing.T) {
 	_, err := w.c.Managers.GetManager(99999999)
+	skipIfUpstreamUnavailable(t, err)
 	assert.Error(t, err)
 
 	_, err = w.c.Leagues.GetClassicLeagueStandings(99999999, 1)
+	skipIfUpstreamUnavailable(t, err)
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, endpoints.ErrLeagueNotFound)
 
 	_, err = w.c.Fixtures.GetFixture(999999)
+	skipIfUpstreamUnavailable(t, err)
 	assert.Error(t, err)
 
 	_, err = w.c.Players.GetPlayer(9999)
+	skipIfUpstreamUnavailable(t, err)
 	assert.Error(t, err)
 }
 
@@ -404,6 +411,7 @@ func mustGetRaw(t *testing.T, c *client.Client, endpoint string) []byte {
 	t.Helper()
 
 	raw, err := c.GetRaw(endpoint)
+	skipIfUpstreamUnavailable(t, err)
 	require.NoError(t, err)
 	require.NotEmpty(t, raw)
 	return raw
@@ -430,6 +438,32 @@ func isStalePayload(t *testing.T, err error) bool {
 
 	var statusErr *client.StatusError
 	return errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusNotFound
+}
+
+// skipIfUpstreamUnavailable turns an FPL API availability failure into a
+// skip: the scheduled maintenance response ("The game is being updated.") and
+// other transient 5xx answers are upstream conditions, not schema drift, so a
+// maintenance window must never be reported as a failing conformance run.
+func skipIfUpstreamUnavailable(t *testing.T, err error) {
+	t.Helper()
+
+	if client.IsMaintenance(err) {
+		t.Skipf("FPL API is being updated: %v", err)
+	}
+	var statusErr *client.StatusError
+	if errors.As(err, &statusErr) && statusErr.StatusCode >= http.StatusInternalServerError {
+		t.Skipf("FPL API is unavailable: %v", err)
+	}
+}
+
+// requireLive is require.NoError for live API calls: a maintenance window or
+// transient upstream outage skips the case instead of failing it. Genuine
+// errors — including every form of schema drift — still fail.
+func requireLive(t *testing.T, err error) {
+	t.Helper()
+
+	skipIfUpstreamUnavailable(t, err)
+	require.NoError(t, err)
 }
 
 // logUnmappedBacklog surfaces the "available but unmapped" inventory so the
