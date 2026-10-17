@@ -207,8 +207,12 @@ occasional 429s. The client handles both automatically and is on by default:
   to two retries, then the response is surfaced to the caller.
 
 All waits are cancellable through the request context, every retry passes through the rate limiter
-(retries consume tokens), and non-throttle statuses (404, 5xx, …) reach callers on the first
-attempt with unchanged error shapes. Tune or disable with `WithThrottlePolicy`; the zero value
+(retries consume tokens), and other non-throttle statuses (404, 5xx, …) reach callers on the first
+attempt. The one exception is the FPL API's scheduled-maintenance response — HTTP 503 with the body
+`"The game is being updated."` — which is surfaced as a typed `*client.MaintenanceError` (test with
+`client.IsMaintenance`). That lets callers treat a maintenance window as a transient upstream
+condition: the live conformance harness skips it rather than reporting schema drift. Non-maintenance
+5xx responses keep their existing shape. Tune or disable with `WithThrottlePolicy`; the zero value
 keeps the defaults and `-1` disables one status class:
 
 ```go
