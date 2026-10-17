@@ -2,11 +2,14 @@ package client
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
@@ -209,7 +212,6 @@ func TestGetRaw_MaintenanceResponseIsTyped(t *testing.T) {
 	var maintErr *MaintenanceError
 	require.ErrorAs(t, err, &maintErr)
 	assert.Equal(t, "/entry/1/history", maintErr.Endpoint)
-	assert.Equal(t, http.StatusServiceUnavailable, maintErr.StatusCode)
 }
 
 func TestGet_MaintenanceResponseIsTyped(t *testing.T) {
@@ -226,10 +228,12 @@ func TestGet_MaintenanceResponseIsTyped(t *testing.T) {
 }
 
 func TestGetRaw_NonMaintenance503StaysStatusError(t *testing.T) {
+	// The maintenance sentence embedded in a larger payload must not be
+	// classified as maintenance: only the exact body counts.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte(`{"detail":"unavailable"}`))
+		_, _ = w.Write([]byte(`{"detail":"The game is being updated. Try again later."}`))
 	}))
 	defer server.Close()
 
@@ -245,6 +249,57 @@ func TestGetRaw_NonMaintenance503StaysStatusError(t *testing.T) {
 	require.ErrorAs(t, err, &statusErr)
 	assert.Equal(t, http.StatusServiceUnavailable, statusErr.StatusCode)
 }
+
+// A GetContext caller that receives a non-maintenance 503 must still be able
+// to read the original body: the maintenance probe restores what it consumed.
+func TestGetContext_NonMaintenance503BodyPreserved(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"detail":"unavailable"}`))
+	}))
+	defer server.Close()
+
+	c, err := NewClient(WithBaseURL(server.URL), WithMemoryCache())
+	require.NoError(t, err)
+
+	resp, err := c.Get("/bootstrap-static/")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, `{"detail":"unavailable"}`, string(body))
+}
+
+// A 503 whose body cannot be read is an error in itself, never a guess about
+// maintenance and never a response with a half-consumed body.
+func TestGetRaw_503BodyReadErrorSurfaces(t *testing.T) {
+	wantErr := errors.New("read boom")
+	c, err := NewClient(
+		WithHTTPClient(&http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusServiceUnavailable,
+				Header:     http.Header{},
+				Body:       io.NopCloser(iotest.ErrReader(wantErr)),
+			}, nil
+		})}),
+		WithMemoryCache(),
+	)
+	require.NoError(t, err)
+
+	body, err := c.GetRaw("/bootstrap-static/")
+	assert.Nil(t, body)
+	require.Error(t, err)
+	assert.False(t, IsMaintenance(err))
+	assert.ErrorIs(t, err, wantErr)
+}
+
+// roundTripperFunc adapts a function to http.RoundTripper for transport-level
+// response injection.
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestRateLimitOptionValidationAndOrdering(t *testing.T) {
 	for _, tc := range []struct {

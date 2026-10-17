@@ -204,8 +204,7 @@ func (w *liveWalk) checkManager(t *testing.T, id int) {
 	if isStalePayload(t, rawErr) {
 		t.Skipf("manager %d no longer exists on the live API", id)
 	}
-	skipIfUpstreamUnavailable(t, rawErr)
-	require.NoError(t, rawErr)
+	requireLive(t, rawErr)
 	require.NotEmpty(t, raw)
 
 	var manager models.Manager
@@ -217,8 +216,7 @@ func (w *liveWalk) checkManager(t *testing.T, id int) {
 	if isStaleID(t, err) {
 		t.Skipf("manager %d no longer exists on the live API", id)
 	}
-	skipIfUpstreamUnavailable(t, err)
-	require.NoError(t, err)
+	requireLive(t, err)
 	require.NotNil(t, m.ID)
 	assert.Equal(t, id, *m.ID, "returned manager should echo the requested ID")
 
@@ -411,8 +409,7 @@ func mustGetRaw(t *testing.T, c *client.Client, endpoint string) []byte {
 	t.Helper()
 
 	raw, err := c.GetRaw(endpoint)
-	skipIfUpstreamUnavailable(t, err)
-	require.NoError(t, err)
+	requireLive(t, err)
 	require.NotEmpty(t, raw)
 	return raw
 }

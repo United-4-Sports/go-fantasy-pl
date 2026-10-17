@@ -23,13 +23,9 @@ const (
 	// defaultTimeout is the default HTTP timeout used if none is specified.
 	defaultTimeout = 10 * time.Second
 
-	// maintenanceMarker is the body the FPL API returns with HTTP 503 while
-	// the game is being updated between gameweeks.
-	maintenanceMarker = "The game is being updated."
-	// maintenanceProbeLimit bounds how much of a 503 body is read while
-	// looking for the maintenance marker. The real body is a short JSON
-	// string, so this is generous.
-	maintenanceProbeLimit = 512
+	// maintenanceBody is the exact payload the FPL API returns with HTTP 503
+	// while the game is being updated between gameweeks.
+	maintenanceBody = `"The game is being updated."`
 )
 
 // Client is the main SDK client used to interact with the FPL API.
@@ -200,19 +196,17 @@ func (e *StatusError) Error() string {
 }
 
 // MaintenanceError reports that the FPL API answered with its scheduled
-// maintenance response ("The game is being updated.", HTTP 503). It is a typed
-// error so callers can treat a maintenance window as a transient upstream
-// condition rather than a real failure — for example, a live conformance run
-// can skip instead of reporting schema drift.
+// maintenance response (HTTP 503, body "The game is being updated."). It is a
+// typed error so callers can treat a maintenance window as a transient
+// upstream condition rather than a real failure — for example, a live
+// conformance run can skip instead of reporting schema drift.
 type MaintenanceError struct {
 	// Endpoint is the API path that was requested.
 	Endpoint string
-	// StatusCode is the status the API returned for the maintenance response.
-	StatusCode int
 }
 
 func (e *MaintenanceError) Error() string {
-	return fmt.Sprintf("FPL API is being updated (status %d) fetching %s", e.StatusCode, e.Endpoint)
+	return fmt.Sprintf("FPL API is being updated (503) fetching %s", e.Endpoint)
 }
 
 // IsMaintenance reports whether err, or anything it wraps, is the FPL API's
@@ -222,34 +216,27 @@ func IsMaintenance(err error) bool {
 	return errors.As(err, &m)
 }
 
-// maintenanceError returns a *MaintenanceError when resp carries the FPL
-// maintenance response and nil otherwise. A non-maintenance response keeps its
-// body readable by the caller.
+// maintenanceError returns a *MaintenanceError when resp is the FPL API's
+// scheduled-maintenance response, and nil for any other response. It consumes
+// the body of every 503 it inspects: a read failure is returned to the caller,
+// and a non-maintenance payload is restored on the response unchanged.
 func maintenanceError(endpoint string, resp *http.Response) error {
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		return nil
 	}
 
-	orig := resp.Body
-	body, readErr := io.ReadAll(io.LimitReader(orig, maintenanceProbeLimit))
-	// Re-attach what was probed so a non-maintenance 503 still reaches the
-	// caller with its body intact — and still closes the real body exactly
-	// once, which is what connection reuse depends on.
-	resp.Body = &probeBody{Reader: io.MultiReader(bytes.NewReader(body), orig), closer: orig}
-	if readErr != nil || !bytes.Contains(body, []byte(maintenanceMarker)) {
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil {
+		return fmt.Errorf("failed to read 503 response body fetching %s: %w", endpoint, err)
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+
+	if string(bytes.TrimSpace(body)) != maintenanceBody {
 		return nil
 	}
-	return &MaintenanceError{Endpoint: endpoint, StatusCode: resp.StatusCode}
+	return &MaintenanceError{Endpoint: endpoint}
 }
-
-// probeBody reattaches bytes read while probing a response body while
-// delegating Close to the original body, so it is closed exactly once.
-type probeBody struct {
-	io.Reader
-	closer io.Closer
-}
-
-func (b *probeBody) Close() error { return b.closer.Close() }
 
 // GetRaw performs a rate-limited GET request and returns the undecoded
 // response body. It is used by the live conformance harness to validate
@@ -317,7 +304,6 @@ func (c *Client) GetContext(ctx context.Context, endpoint string) (*http.Respons
 		// response callers should try to parse: surface it as a typed error so
 		// it can be told apart from real failures and schema drift.
 		if maintErr := maintenanceError(endpoint, resp); maintErr != nil {
-			_ = resp.Body.Close()
 			return nil, maintErr
 		}
 
