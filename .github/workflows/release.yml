@@ -53,7 +53,7 @@ jobs:
         shell: bash
         run: |
           min_go="$(awk '$1 == "go" { print $2 }' go.mod)"
-          if ! [[ "$min_go" =~ ^[0-9]+\.[0-9]+$ ]]; then
+          if ! [[ "$min_go" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
             echo "::error::Could not parse a go directive from go.mod (got '$min_go')"
             exit 1
           fi

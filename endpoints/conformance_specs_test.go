@@ -14,6 +14,7 @@ package endpoints_test
 // endpoints.Response wrapper.
 var bootstrapAllowlist = []string{
 	"chips",
+	"contests", // The live API currently returns an empty array.
 	"element_stats",
 	"element_types",
 	"game_config",

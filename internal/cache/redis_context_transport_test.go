@@ -30,9 +30,7 @@ func blockedRedisTransport(t *testing.T) (string, <-chan string, *atomic.Int32) 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var conns []net.Conn
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
@@ -41,9 +39,7 @@ func blockedRedisTransport(t *testing.T) (string, <-chan string, *atomic.Int32) 
 			mu.Lock()
 			conns = append(conns, conn)
 			mu.Unlock()
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				defer conn.Close()
 				reader := bufio.NewReader(conn)
 				for {
@@ -73,9 +69,9 @@ func blockedRedisTransport(t *testing.T) (string, <-chan string, *atomic.Int32) 
 						return
 					}
 				}
-			}()
+			})
 		}
-	}()
+	})
 	t.Cleanup(func() {
 		close(stop)
 		_ = listener.Close()

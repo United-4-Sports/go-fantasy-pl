@@ -61,9 +61,7 @@ func TestMemoryCacheExpiryCleanupRace(t *testing.T) {
 	var wg sync.WaitGroup
 	start := make(chan struct{})
 	for i := range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			if i%2 == 0 {
 				// Expiry churn: write immediately-expired values and read
@@ -99,7 +97,7 @@ func TestMemoryCacheExpiryCleanupRace(t *testing.T) {
 					}
 				}
 			}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
