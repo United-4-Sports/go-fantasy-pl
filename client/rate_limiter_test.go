@@ -138,16 +138,14 @@ func TestRateLimiterConcurrentBudget(t *testing.T) {
 		r.waitHook = func() { outcomes <- false }
 		var wg sync.WaitGroup
 		for range 64 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				err := r.Wait(ctx)
 				if err == nil {
 					outcomes <- true
 				} else {
 					assert.ErrorIs(t, err, context.Canceled)
 				}
-			}()
+			})
 		}
 		admitted := 0
 		for range 64 {

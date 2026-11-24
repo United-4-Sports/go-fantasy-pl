@@ -118,9 +118,7 @@ func TestLegacyCacheConcurrentGetSet(t *testing.T) {
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	for worker := range 8 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			for range 1000 {
 				if worker%2 == 0 {
@@ -134,7 +132,7 @@ func TestLegacyCacheConcurrentGetSet(t *testing.T) {
 					}
 				}
 			}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

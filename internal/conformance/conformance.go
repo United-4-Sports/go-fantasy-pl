@@ -339,8 +339,7 @@ func jsonTags(t reflect.Type) map[string]string {
 }
 
 func collectTags(t reflect.Type, tags map[string]string) {
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
+	for f := range t.Fields() {
 		tag := f.Tag.Get("json")
 		if tag == "-" {
 			continue
